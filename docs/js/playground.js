@@ -281,7 +281,7 @@ class PlaygroundApp {
     this.renderTop1Card(top1, query, latency);
     this.renderCandidatesList(candidates);
     this.updateDispatchStatus(top1);
-    this.updateCodeSnippet(query, top1);
+    this.updateCodeSnippet(query, top1, latency);
   }
 
   renderTop1Card(top1, query, latency) {
@@ -402,21 +402,42 @@ class PlaygroundApp {
     }
   }
 
-  async updateCodeSnippet(query = '', top1 = null) {
+  async updateCodeSnippet(query = '', top1 = null, latency = null) {
     if (!this.codeSnippetEl) return;
-    const qStr = query || (this.queryInput?.value || '').trim() || 'read the package.json file to see dependencies';
-    const toolName = top1?.name || (this.engine.search(qStr, 1)[0]?.name) || 'fs_read_file';
+    const qStr = query || this.lastQuery || (this.queryInput?.value || '').trim() || 'read the package.json file to see dependencies';
+    const activeTop1 = top1 || this.lastTop1 || this.engine.search(qStr, 1)[0] || { name: 'fs_read_file', probability: 0.88 };
+    const toolName = activeTop1.name || 'fs_read_file';
+    const lat = latency ?? this.lastLatency ?? 0.24;
+
+    this.lastQuery = qStr;
+    this.lastTop1 = activeTop1;
+    this.lastLatency = lat;
+
+    // Build the tools map so the selected tool and candidate tools are always defined
+    const snippetTools = {};
+    snippetTools[toolName] = this.activeTools[toolName]?.description || 'Execute ' + toolName;
+
+    // Add other top candidates
+    const searchResults = this.engine.search(qStr, Math.max(3, this.topK));
+    for (const item of searchResults) {
+      if (!snippetTools[item.name] && Object.keys(snippetTools).length < 4) {
+        snippetTools[item.name] = this.activeTools[item.name]?.description || 'Execute ' + item.name;
+      }
+    }
+
+    // Ensure at least 3 tools are displayed
+    for (const [name, meta] of Object.entries(this.activeTools)) {
+      if (!snippetTools[name] && Object.keys(snippetTools).length < 3) {
+        snippetTools[name] = meta.description || 'Tool description';
+      }
+    }
 
     let code = '';
     if (this.activeCodeLang === 'js') {
-      code = `// One-shot tool selection with offline TurboQuant (0.4ms)
+      code = `// One-shot tool selection with offline TurboQuant (${lat.toFixed(2)}ms)
 import prune from 'tool-prune';
 
-const tools = ${JSON.stringify(
-        Object.fromEntries(Object.entries(this.activeTools).slice(0, 4).map(([k, v]) => [k, v.description])),
-        null,
-        2
-      )};
+const tools = ${JSON.stringify(snippetTools, null, 2)};
 
 // 1. Direct prune or LLM candidate filter
 const match = await prune(${JSON.stringify(qStr)}, tools, {
@@ -424,8 +445,8 @@ const match = await prune(${JSON.stringify(qStr)}, tools, {
 });
 
 console.log(match.tool);       // "${toolName}"
-console.log(match.confidence); // ${top1 ? (top1.probability).toFixed(3) : '0.942'}
-console.log(match.latency);    // 0.24ms
+console.log(match.confidence); // ${(activeTop1.probability || 0.88).toFixed(3)}
+console.log(match.latency);    // ${lat.toFixed(2)}ms
 
 // 2. Fast-path direct dispatch when confident:
 const router = prune(tools, { threshold: ${this.threshold} });
@@ -434,24 +455,27 @@ const result = await router.dispatch(${JSON.stringify(qStr)}, {
   fallback: (query, candidates) => callLLM(query, candidates)
 });`;
     } else if (this.activeCodeLang === 'py') {
+      const pyToolsEntries = Object.entries(snippetTools)
+        .map(([k, v]) => `    ${JSON.stringify(k)}: ${JSON.stringify(v)}`)
+        .join(',\n');
+
       code = `# Python API: zero dependencies offline TurboQuant
 from tool_prune import prune, ToolPrune
 
 tools = {
-    "readFile": "Read raw text from local filesystem path",
-    "runQuery": "Execute SQL queries against database",
-    "webSearch": "Search public web for documentation or articles"
+${pyToolsEntries}
 }
 
 # 1. One-shot offline selection
 match = prune(${JSON.stringify(qStr)}, tools)
-print(match.tool, match.confidence)
+print(match.tool)        # "${toolName}"
+print(match.confidence)  # ${(activeTop1.probability || 0.88).toFixed(3)}
 
 # 2. Reusable router for LLM prompt pruning
 router = ToolPrune(tools, threshold=${this.threshold})
 candidates = router.filter(${JSON.stringify(qStr)}, k=${this.topK})
 
-# 3. Direct dispatch
+# 3. Fast-path direct dispatch
 result = router.dispatch(${JSON.stringify(qStr)}, {
     "${toolName}": lambda q: handle_direct(q),
     "fallback": lambda q, c: call_llm(q, c)
