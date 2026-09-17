@@ -1,14 +1,14 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["flit_core >=3.2,<4"]
+build-backend = "flit_core.buildapi"
 
 [project]
 name = "tool-prune"
 version = "0.1.0"
-description = "Fast, calibrated tool selection and schema pruning for AI agents using TypeSafe System One."
+description = "Calibrated tool selection and schema pruning for AI agents. Zero dependencies."
 readme = "README.md"
 requires-python = ">=3.9"
-license = "MIT"
+license = { text = "MIT" }
 authors = [
     { name = "Hemanth HM", email = "hemanth.hm@gmail.com" },
 ]
