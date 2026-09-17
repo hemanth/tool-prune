@@ -20,7 +20,8 @@
   ],
   "scripts": {
     "test": "node --test test/index.test.js",
-    "demo": "node examples/quickstart.js"
+    "demo": "node examples/quickstart.js",
+    "playground": "node ../serve-playground.mjs"
   },
   "keywords": [
     "tool-prune",

@@ -2,6 +2,8 @@
 
 Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
 
+[**Live Interactive Playground →**](https://hemanth.github.io/tool-prune/)
+
 ```bash
 npm install tool-prune
 # or

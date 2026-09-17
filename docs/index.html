@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>tool-prune | Calibrated Tool Selection & Schema Pruning for AI Agents</title>
+  <meta name="description" content="Stop dumping 100 MCP tool schemas into LLM prompts. Prune to the top candidates in 0.4ms offline, or direct-dispatch with calibrated confidence." />
+  <meta name="theme-color" content="#fbfaf7" />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="tool-prune | Interactive Playground" />
+  <meta property="og:description" content="Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://hemanth.github.io/tool-prune/" />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400;1,600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            canvas: '#fbfaf7',
+            ink: {
+              900: '#181715',
+              800: '#2c2925',
+              700: '#433e38',
+              500: '#756f66',
+              400: '#a39c92',
+              300: '#c8c2b7',
+              200: '#e5e1d8',
+              100: '#f0ece3',
+              50: '#f7f5f0'
+            },
+            sage: {
+              50: '#f2f7f4',
+              100: '#e5f0e9',
+              200: '#cce1d4',
+              300: '#a8ceb6',
+              700: '#2d634d',
+              800: '#234e3d',
+              900: '#173629'
+            },
+            peach: {
+              50: '#fef5f0',
+              100: '#fdebe2',
+              200: '#fad7c5',
+              300: '#f5b597',
+              700: '#b84928',
+              800: '#94371c',
+              900: '#682411'
+            },
+            lavender: {
+              50: '#f6f4fb',
+              100: '#eee9f7',
+              200: '#ded3ef',
+              300: '#c2aee1',
+              700: '#604495',
+              800: '#4d3678',
+              900: '#352355'
+            },
+            butter: {
+              50: '#fefcf3',
+              100: '#fdf7e7',
+              200: '#f9eccf',
+              300: '#f2dba6',
+              700: '#8c6512',
+              800: '#6f500d',
+              900: '#4d3708'
+            },
+            sky: {
+              50: '#f2f7fc',
+              100: '#e5f0f9',
+              200: '#cde1f3',
+              300: '#a6caea',
+              700: '#2a6296',
+              800: '#204d77',
+              900: '#143452'
+            }
+          },
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'Manrope', 'system-ui', 'sans-serif'],
+            display: ['"Playfair Display"', 'Georgia', 'serif'],
+            mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace']
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    /* Subtle noise texture */
+    .noise-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+      opacity: 0.028;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+    }
+
+    /* Micro-sheen hover effects from Taste Skill */
+    .micro-sheen {
+      position: relative;
+      overflow: hidden;
+    }
+    .micro-sheen::after {
+      content: '';
+      position: absolute;
+      top: -50%;
+      left: -80%;
+      width: 30%;
+      height: 200%;
+      background: linear-gradient(
+        60deg,
+        rgba(255, 255, 255, 0) 20%,
+        rgba(255, 255, 255, 0.45) 50%,
+        rgba(255, 255, 255, 0) 80%
+      );
+      transform: rotate(25deg);
+      pointer-events: none;
+      transition: all 0.75s cubic-bezier(0.16, 1, 0.3, 1);
+      opacity: 0;
+    }
+    .micro-sheen:hover::after {
+      left: 150%;
+      opacity: 1;
+    }
+
+    /* Range slider custom styling */
+    input[type='range'] {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      border-radius: 9999px;
+      background: #e5e1d8;
+      outline: none;
+    }
+    input[type='range']::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #181715;
+      cursor: pointer;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    input[type='range']::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+      background: #b84928;
+    }
+
+    /* Smooth custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f7f5f0;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #dedad2;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #c8c2b7;
+    }
+  </style>
+</head>
+
+<body class="bg-canvas text-ink-900 font-sans antialiased min-h-screen selection:bg-peach-200 selection:text-peach-900">
+  <div class="noise-overlay" aria-hidden="true"></div>
+
+  <!-- Header Navigation -->
+  <header class="sticky top-0 z-50 w-full px-4 sm:px-6 lg:px-8 pt-3 pb-2 backdrop-blur-md bg-canvas/85 border-b border-ink-200/60">
+    <nav class="max-w-7xl mx-auto flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <a href="#hero" class="group flex items-center gap-2.5 font-bold tracking-tight text-ink-900 text-lg">
+          <div class="w-8 h-8 rounded-xl bg-ink-900 text-white flex items-center justify-center shadow-sm group-hover:bg-peach-700 transition-colors duration-300">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m3 3 7 7-3 3 7 7 3-3-7-7 3-3Z" />
+              <path d="m14 4 6 6" />
+            </svg>
+          </div>
+          <span class="font-mono text-base tracking-tight font-semibold">tool-prune</span>
+        </a>
+
+        <div class="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium bg-sage-100 text-sage-800 border border-sage-200">
+          <span class="w-1.5 h-1.5 rounded-full bg-sage-700"></span>
+          <span>v0.2.0</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 sm:gap-3">
+        <a href="#playground" class="micro-sheen hidden md:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-ink-700 hover:text-ink-900 hover:bg-ink-100/70 transition-colors">
+          Playground
+        </a>
+        <a href="#benchmarks" class="micro-sheen hidden md:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-ink-700 hover:text-ink-900 hover:bg-ink-100/70 transition-colors">
+          Benchmark
+        </a>
+        <a href="#calculator" class="micro-sheen hidden md:inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-medium text-ink-700 hover:text-ink-900 hover:bg-ink-100/70 transition-colors">
+          ROI Calculator
+        </a>
+        <a href="https://github.com/hemanth/tool-prune" target="_blank" rel="noreferrer" class="micro-sheen inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-ink-900 text-white text-xs font-semibold shadow-sm hover:bg-ink-800 active:scale-95 transition-all">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-.99-.02-1.94-3.2.69-3.88-1.54-3.88-1.54-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.68 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.27-5.24-5.66 0-1.25.45-2.27 1.18-3.07-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.17a10.93 10.93 0 0 1 5.74 0c2.19-1.48 3.15-1.17 3.15-1.17.62 1.59.23 2.76.11 3.05.74.8 1.18 1.82 1.18 3.07 0 4.4-2.69 5.36-5.25 5.65.41.36.78 1.06.78 2.13 0 1.54-.01 2.78-.01 3.16 0 .31.21.67.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5Z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </nav>
+  </header>
+
+  <!-- Hero Section with Hero Discipline from Taste Skill -->
+  <section id="hero" class="relative pt-12 pb-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <div class="max-w-3xl">
+      <!-- Taste-Skill Header Pill -->
+      <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-peach-50 text-peach-800 border border-peach-200 text-xs font-mono font-medium mb-5">
+        <span class="w-2 h-2 rounded-full bg-peach-700 animate-pulse"></span>
+        <span>Dual-Engine Schema Pruning & Tool Selection</span>
+      </div>
+
+      <!-- Headline: max two lines desktop -->
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight text-ink-900 leading-[1.08]">
+        Calibrated tool selection for <span class="font-display italic font-normal text-peach-700">AI agents</span>.
+      </h1>
+
+      <!-- Subtext: max 20 words -->
+      <p class="mt-4 text-lg text-ink-700 leading-relaxed max-w-2xl font-normal">
+        Prune 100 tool schemas to top candidates in 0.4ms offline, or direct-dispatch with calibrated confidence.
+      </p>
+
+      <!-- Primary Action & Install Strip -->
+      <div class="mt-8 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <div class="flex items-center justify-between gap-3 px-4 py-3 rounded-xl bg-white border border-ink-200 shadow-sm font-mono text-xs text-ink-800">
+          <div class="flex items-center gap-2">
+            <span class="text-ink-400">$</span>
+            <span id="install-cmd-text">npm i tool-prune</span>
+          </div>
+          <button type="button" data-copy-target="install-cmd-text" class="micro-sheen px-2.5 py-1 rounded-lg bg-ink-50 hover:bg-ink-100 text-ink-700 text-[11px] font-semibold transition-all border border-ink-200">
+            Copy
+          </button>
+        </div>
+
+        <a href="#playground" class="micro-sheen inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-ink-900 text-white font-semibold text-sm shadow-md hover:bg-ink-800 active:scale-[0.98] transition-all">
+          <span>Try Interactive Playground</span>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14" />
+            <path d="m12 5 7 7-7 7" />
+          </svg>
+        </a>
+
+        <a href="#architecture" class="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-white text-ink-800 font-medium text-sm border border-ink-200 hover:bg-ink-50 transition-all">
+          <span>How it works</span>
+        </a>
+      </div>
+
+      <!-- Quick Feature Metrics in Pastel Badges -->
+      <div class="mt-8 flex flex-wrap items-center gap-2 pt-2 border-t border-ink-200/60">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sage-100 text-sage-800 border border-sage-200">
+          ⚡ 0.4ms offline TurboQuant
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-peach-100 text-peach-800 border border-peach-200">
+          ✂️ -92% prompt tokens
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-lavender-100 text-lavender-800 border border-lavender-200">
+          🧠 100% BFCL Top-1 (TypeSafe)
+        </span>
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sky-100 text-sky-800 border border-sky-200">
+          📦 Zero external dependencies
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Live Playground -->
+  <section id="playground" class="scroll-mt-20 py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <!-- Section Header -->
+    <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8">
+      <div>
+        <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-peach-800 font-semibold mb-2">
+          Live Interactive Engine
+        </div>
+        <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
+          Playground
+        </h2>
+        <p class="text-ink-700 text-sm mt-1 max-w-xl">
+          Test real TurboQuant vector search in your browser. Type an intent or choose an example query below.
+        </p>
+      </div>
+
+      <!-- Preset Selector & Tool Inspector Button -->
+      <div class="flex flex-wrap items-center gap-2.5">
+        <div class="relative">
+          <select id="preset-selector" class="pl-3 pr-8 py-2 rounded-xl text-xs font-medium bg-white border border-ink-200 text-ink-900 shadow-sm appearance-none focus:outline-none focus:ring-2 focus:ring-peach-300">
+            <option value="mcp_dev">Developer MCP Suite (30 tools)</option>
+            <option value="web_research">Web & Research Agent (12 tools)</option>
+            <option value="data_analyst">Data & Warehouse Suite (12 tools)</option>
+            <option value="bfcl_distractor">BFCL v3 Distractor Challenge (12 tools)</option>
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-ink-500">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </div>
+        </div>
+
+        <button type="button" id="btn-inspect-catalog" class="micro-sheen px-3 py-2 rounded-xl text-xs font-semibold bg-white text-ink-800 border border-ink-200 hover:bg-ink-50 shadow-sm flex items-center gap-1.5 transition-all">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+          <span>Inspect Tools</span>
+          <span id="tool-count-badge" class="ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-ink-100 text-ink-700">30 tools</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Playground Workspace Container -->
+    <div class="rounded-2xl border border-ink-200/80 bg-white shadow-[0_4px_24px_-8px_rgba(24,23,21,0.06)] overflow-hidden">
+      
+      <!-- Top Query Search Bar -->
+      <div class="p-4 sm:p-6 bg-canvas border-b border-ink-200/70">
+        <label for="query-input" class="block text-xs font-mono uppercase tracking-wider text-ink-500 font-semibold mb-2">
+          User Intent / Natural Language Query
+        </label>
+        <div class="relative flex items-center">
+          <div class="absolute left-4 text-ink-400 pointer-events-none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.3-4.3" />
+            </svg>
+          </div>
+          <input
+            id="query-input"
+            type="text"
+            value="read the package.json file to see dependencies"
+            placeholder="Type any user intent (e.g. read file, find git diff, run query)..."
+            class="w-full pl-11 pr-24 py-3.5 rounded-xl bg-white border border-ink-200 text-ink-900 placeholder:text-ink-400 font-mono text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-peach-300 focus:border-peach-400 transition-all"
+          />
+          <div class="absolute right-3 flex items-center gap-1.5">
+            <kbd class="hidden sm:inline-block px-2 py-1 text-[10px] font-mono font-medium text-ink-500 bg-ink-100 rounded border border-ink-200">
+              Cmd+K
+            </kbd>
+          </div>
+        </div>
+
+        <!-- Quick Sample Chips -->
+        <div class="mt-4 flex items-center gap-2 overflow-x-auto pb-1">
+          <span class="text-xs font-mono text-ink-500 whitespace-nowrap">Try:</span>
+          <div id="quick-chips" class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <!-- Chips rendered dynamically -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls Strip: Top-K and Threshold -->
+      <div class="px-6 py-3.5 bg-ink-50/60 border-b border-ink-200/70 flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div class="flex flex-wrap items-center gap-6">
+          <div class="flex items-center gap-2.5">
+            <span class="font-mono text-ink-700 font-medium">Top-K Candidates:</span>
+            <input id="topk-slider" type="range" min="1" max="8" value="3" class="w-24 accent-peach-700 cursor-pointer" />
+            <span id="topk-value" class="font-mono font-bold text-ink-900 bg-white px-2 py-0.5 rounded border border-ink-200">Top-3</span>
+          </div>
+
+          <div class="flex items-center gap-2.5">
+            <span class="font-mono text-ink-700 font-medium">Direct Dispatch Threshold:</span>
+            <input id="threshold-slider" type="range" min="50" max="95" value="85" step="5" class="w-24 accent-peach-700 cursor-pointer" />
+            <span id="threshold-value" class="font-mono font-bold text-ink-900 bg-white px-2 py-0.5 rounded border border-ink-200">85%</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-ink-500 text-[11px]">Engine:</span>
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sage-100 text-sage-800 border border-sage-200">
+            TurboQuant (Offline WASM/FWHT)
+          </span>
+        </div>
+      </div>
+
+      <!-- Playground Main Body -->
+      <div class="p-6 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        
+        <!-- Left Column: Top Match and Candidate Ranking -->
+        <div class="lg:col-span-7 flex flex-col gap-6">
+          
+          <!-- Top-1 Card -->
+          <div id="top1-card" class="p-5 rounded-2xl bg-white border border-ink-200 shadow-sm">
+            <!-- Rendered by JS -->
+          </div>
+
+          <!-- Dispatch Status Banner -->
+          <div id="dispatch-status">
+            <!-- Rendered by JS -->
+          </div>
+
+          <!-- Pruned Candidates List -->
+          <div>
+            <div class="flex items-center justify-between mb-3">
+              <h3 class="font-mono text-xs font-bold uppercase tracking-wider text-ink-700">
+                Top Ranked Candidates (<span id="candidates-count">Top-3</span>)
+              </h3>
+              <span class="text-xs text-ink-500 font-mono">Calibrated vector similarity</span>
+            </div>
+            
+            <div id="candidates-list" class="flex flex-col gap-2.5">
+              <!-- Rendered by JS -->
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column: Live Savings Metrics & Generated Code -->
+        <div class="lg:col-span-5 flex flex-col gap-6">
+          
+          <!-- Live Metrics Card -->
+          <div class="p-5 rounded-2xl bg-canvas border border-ink-200/80">
+            <h3 class="font-mono text-xs font-bold uppercase tracking-wider text-ink-700 mb-4">
+              Real-Time Pruning Impact
+            </h3>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div class="p-3.5 rounded-xl bg-white border border-ink-200">
+                <div class="text-[11px] font-mono text-ink-500 uppercase">Search Latency</div>
+                <div id="metric-latency" class="text-2xl font-bold font-mono text-sage-800 mt-1">0.24 ms</div>
+                <div class="text-[10px] text-ink-500 mt-0.5">Offline vector search</div>
+              </div>
+
+              <div class="p-3.5 rounded-xl bg-white border border-ink-200">
+                <div class="text-[11px] font-mono text-ink-500 uppercase">Prompt Reduction</div>
+                <div id="metric-savings" class="text-2xl font-bold font-mono text-peach-800 mt-1">-91.2% tokens</div>
+                <div class="text-[10px] text-ink-500 mt-0.5">Compared to 30 schemas</div>
+              </div>
+            </div>
+
+            <!-- Visual Bar Comparison -->
+            <div class="mt-4 pt-4 border-t border-ink-200/70 text-xs">
+              <div class="flex justify-between mb-1 text-ink-600 font-mono">
+                <span>Unpruned Catalog</span>
+                <span class="font-semibold text-ink-900">~4,680 tokens</span>
+              </div>
+              <div class="w-full bg-ink-200/60 rounded-full h-2 overflow-hidden mb-3">
+                <div class="bg-ink-400 h-full w-full"></div>
+              </div>
+
+              <div class="flex justify-between mb-1 text-ink-600 font-mono">
+                <span class="text-peach-800 font-semibold">tool-prune Candidate Set</span>
+                <span class="font-semibold text-peach-800">~450 tokens</span>
+              </div>
+              <div class="w-full bg-ink-200/60 rounded-full h-2 overflow-hidden">
+                <div class="bg-peach-700 h-full w-[10%] rounded-full"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Code Snippet Generator -->
+          <div class="p-5 rounded-2xl bg-ink-900 text-white shadow-sm flex flex-col flex-1">
+            <div class="flex items-center justify-between pb-3 border-b border-ink-800 mb-3">
+              <div class="flex items-center gap-1.5">
+                <button type="button" data-lang-tab="js" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white shadow-sm border border-neutral-200 text-neutral-900">
+                  JavaScript
+                </button>
+                <button type="button" data-lang-tab="py" class="px-3.5 py-1.5 text-xs font-medium rounded-lg text-ink-400 hover:text-white transition-colors">
+                  Python
+                </button>
+              </div>
+
+              <button type="button" data-copy-target="code-snippet" class="micro-sheen px-2.5 py-1 rounded-lg bg-ink-800 hover:bg-ink-700 text-ink-200 text-xs font-mono flex items-center gap-1 transition-all border border-ink-700">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+                <span>Copy</span>
+              </button>
+            </div>
+
+            <pre class="overflow-x-auto font-mono text-xs text-ink-200 leading-relaxed flex-1"><code id="code-snippet">
+// Loading snippet...
+            </code></pre>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Interactive Token & Cost Savings Calculator -->
+  <section id="calculator" class="scroll-mt-20 py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-ink-200/60">
+    <div class="max-w-3xl mb-10">
+      <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-peach-800 font-semibold mb-2">
+        Financial & Latency ROI
+      </div>
+      <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
+        How much does schema pruning save?
+      </h2>
+      <p class="text-ink-700 text-base mt-2">
+        Agents that pass entire MCP catalogs into each prompt burn thousands of redundant tokens every turn. Adjust the sliders below to calculate your savings.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-stretch">
+      
+      <!-- Calculator Sliders Form -->
+      <div class="lg:col-span-6 p-6 sm:p-8 rounded-2xl bg-white border border-ink-200 shadow-sm flex flex-col justify-between gap-6">
+        <div>
+          <!-- Slider 1: Daily Agent Steps -->
+          <div class="mb-6">
+            <div class="flex justify-between items-center mb-2">
+              <label for="calc-steps" class="font-mono text-xs font-bold uppercase text-ink-700">
+                Agent Tool Invocations / Day
+              </label>
+              <span id="calc-steps-val" class="font-mono text-sm font-bold text-ink-900 bg-ink-100 px-2.5 py-0.5 rounded">
+                5,000
+              </span>
+            </div>
+            <input id="calc-steps" type="range" min="500" max="50000" step="500" value="5000" class="w-full accent-peach-700 cursor-pointer" />
+            <div class="flex justify-between text-[11px] text-ink-400 font-mono mt-1">
+              <span>500</span>
+              <span>25,000</span>
+              <span>50,000</span>
+            </div>
+          </div>
+
+          <!-- Slider 2: Number of MCP Tools -->
+          <div class="mb-6">
+            <div class="flex justify-between items-center mb-2">
+              <label for="calc-tools" class="font-mono text-xs font-bold uppercase text-ink-700">
+                Total Tools in Agent Catalog
+              </label>
+              <span id="calc-tools-val" class="font-mono text-sm font-bold text-ink-900 bg-ink-100 px-2.5 py-0.5 rounded">
+                40 tools
+              </span>
+            </div>
+            <input id="calc-tools" type="range" min="10" max="120" step="5" value="40" class="w-full accent-peach-700 cursor-pointer" />
+            <div class="flex justify-between text-[11px] text-ink-400 font-mono mt-1">
+              <span>10 tools</span>
+              <span>60 tools</span>
+              <span>120 tools</span>
+            </div>
+          </div>
+
+          <!-- Select: Target LLM Model -->
+          <div>
+            <label for="calc-model" class="block font-mono text-xs font-bold uppercase text-ink-700 mb-2">
+              Target Model Token Pricing
+            </label>
+            <div class="relative">
+              <select id="calc-model" class="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-canvas border border-ink-200 text-ink-900 appearance-none focus:outline-none focus:ring-2 focus:ring-peach-300">
+                <option value="3.0">Claude 3.5 Sonnet ($3.00 / 1M input tokens)</option>
+                <option value="2.5">GPT-4o ($2.50 / 1M input tokens)</option>
+                <option value="1.25">Gemini 1.5 Pro ($1.25 / 1M input tokens)</option>
+                <option value="0.15">Claude 3.5 Haiku ($0.80 / 1M input tokens)</option>
+              </select>
+              <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-ink-500">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="p-3.5 rounded-xl bg-sage-50 border border-sage-200 text-xs text-sage-800 leading-relaxed font-normal">
+          💡 Assumes average tool schema specification is 160 tokens and pruning selects Top-3 candidates.
+        </div>
+      </div>
+
+      <!-- Calculator Results Card in Warm Pastel -->
+      <div class="lg:col-span-6 p-6 sm:p-8 rounded-2xl bg-canvas border border-ink-200 shadow-sm flex flex-col justify-between gap-6">
+        <div>
+          <h3 class="font-mono text-xs font-bold uppercase tracking-wider text-peach-800 mb-6">
+            Estimated Monthly Savings
+          </h3>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="p-5 rounded-2xl bg-white border border-peach-200 shadow-sm">
+              <div class="text-xs font-mono uppercase text-ink-500">Monthly Tokens Saved</div>
+              <div id="calc-saved-tokens" class="text-3xl sm:text-4xl font-bold font-mono text-peach-800 mt-2">
+                888M
+              </div>
+              <p class="text-xs text-ink-600 mt-1">Prompt tokens avoided</p>
+            </div>
+
+            <div class="p-5 rounded-2xl bg-white border border-sage-200 shadow-sm">
+              <div class="text-xs font-mono uppercase text-ink-500">Monthly Cost Saved</div>
+              <div id="calc-saved-dollars" class="text-3xl sm:text-4xl font-bold font-mono text-sage-800 mt-2">
+                $2,664
+              </div>
+              <p class="text-xs text-ink-600 mt-1">Direct LLM invoice savings</p>
+            </div>
+          </div>
+
+          <div class="mt-4 p-5 rounded-2xl bg-white border border-sky-200 shadow-sm">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-xs font-mono uppercase text-ink-500">Total Agent Hours Saved</div>
+                <div id="calc-saved-latency" class="text-2xl font-bold font-mono text-sky-800 mt-1">
+                  29h
+                </div>
+              </div>
+              <div class="text-right text-xs text-ink-600 font-mono">
+                Prompt token processing latency cut by 88%
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-ink-500 leading-relaxed font-normal">
+          Beyond token cost, schema pruning eliminates LLM context confusion: the Gorilla BFCL benchmark proves top-1 selection accuracy increases from 86.1% to 100% when noise distractors are pruned out.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Berkeley Function Calling Benchmark (BFCL v3) -->
+  <section id="benchmarks" class="scroll-mt-20 py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-ink-200/60">
+    <div class="max-w-3xl mb-8">
+      <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-sage-800 font-semibold mb-2">
+        Empirical Evaluation
+      </div>
+      <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
+        Berkeley Function Calling Benchmark (BFCL v3)
+      </h2>
+      <p class="text-ink-700 text-sm mt-1">
+        Evaluated on the Gorilla BFCL v3 multiple-tool dataset across 100 tool schemas and subtle distractor intents.
+      </p>
+    </div>
+
+    <!-- Benchmark Table -->
+    <div class="rounded-2xl border border-ink-200 bg-white shadow-sm overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm">
+          <thead>
+            <tr class="bg-canvas border-b border-ink-200 text-xs font-mono text-ink-600 uppercase">
+              <th class="py-3.5 px-4 sm:px-6">Engine</th>
+              <th class="py-3.5 px-4">Backend</th>
+              <th class="py-3.5 px-4">Distractor Top-1</th>
+              <th class="py-3.5 px-4">100-Tool Top-5 Prune</th>
+              <th class="py-3.5 px-4">Search Latency</th>
+              <th class="py-3.5 px-4">Network</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-ink-100 font-mono text-xs">
+            <tr class="bg-peach-50/40 hover:bg-peach-50/70 transition-colors">
+              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-peach-700"></span>
+                TypeSafe (Jev)
+              </td>
+              <td class="py-4 px-4 text-ink-700">Cloud System One</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 text-ink-900">258 ms</td>
+              <td class="py-4 px-4 text-ink-600">Cloud API</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-sage-700"></span>
+                TurboQuant (WASM)
+              </td>
+              <td class="py-4 px-4 text-ink-700">JS WASM (turboquant-search)</td>
+              <td class="py-4 px-4 text-ink-900">86.7%</td>
+              <td class="py-4 px-4 text-ink-900">85.0%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">14 ms</td>
+              <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-sky-700"></span>
+                TurboQuant (Python)
+              </td>
+              <td class="py-4 px-4 text-ink-700">Rust SIMD (turbovec)</td>
+              <td class="py-4 px-4 text-ink-900">85.0%</td>
+              <td class="py-4 px-4 text-ink-900">82.5%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.023 ms</td>
+              <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-butter-700"></span>
+                TurboQuant (Pure JS)
+              </td>
+              <td class="py-4 px-4 text-ink-700">Pure JS / Python Fallback</td>
+              <td class="py-4 px-4 text-ink-900">83.3%</td>
+              <td class="py-4 px-4 text-ink-900">82.5%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.4 ms</td>
+              <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- Architecture & How It Works -->
+  <section id="architecture" class="scroll-mt-20 py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-ink-200/60">
+    <div class="max-w-3xl mb-12">
+      <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-lavender-800 font-semibold mb-2">
+        Dual-Engine Design
+      </div>
+      <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
+        Architecture & Workflow
+      </h2>
+      <p class="text-ink-700 text-sm mt-1">
+        Three simple stages to eliminate agent prompt bloat and achieve deterministic sub-millisecond execution.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      
+      <!-- Card 1 -->
+      <div class="p-6 rounded-2xl bg-white border border-ink-200 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-xl bg-sage-100 text-sage-800 border border-sage-200 flex items-center justify-center font-mono font-bold text-sm mb-4">
+            1
+          </div>
+          <h3 class="text-lg font-bold text-ink-900 mb-2">
+            FWHT Vector Projection
+          </h3>
+          <p class="text-xs text-ink-600 leading-relaxed font-normal">
+            Tool criteria and query tokens are hashed and rotated using a diagonal Rademacher matrix and the Fast Walsh-Hadamard Transform in O(d log d), eliminating data-dependent training overhead.
+          </p>
+        </div>
+        <div class="mt-6 pt-4 border-t border-ink-100 font-mono text-[11px] text-sage-800">
+          Zero network • Pure local math
+        </div>
+      </div>
+
+      <!-- Card 2 -->
+      <div class="p-6 rounded-2xl bg-white border border-ink-200 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-xl bg-peach-100 text-peach-800 border border-peach-200 flex items-center justify-center font-mono font-bold text-sm mb-4">
+            2
+          </div>
+          <h3 class="text-lg font-bold text-ink-900 mb-2">
+            PolarQuant & QJL Residual
+          </h3>
+          <p class="text-xs text-ink-600 leading-relaxed font-normal">
+            Vectors are quantized to 2-bit discrete intervals, while residual error vectors are captured with 1-bit Johnson-Lindenstrauss random signs. Preserves high cosine fidelity with tiny memory footprints.
+          </p>
+        </div>
+        <div class="mt-6 pt-4 border-t border-ink-100 font-mono text-[11px] text-peach-800">
+          Calibrated [0, 1] probability range
+        </div>
+      </div>
+
+      <!-- Card 3 -->
+      <div class="p-6 rounded-2xl bg-white border border-ink-200 shadow-sm flex flex-col justify-between">
+        <div>
+          <div class="w-10 h-10 rounded-xl bg-sky-100 text-sky-800 border border-sky-200 flex items-center justify-center font-mono font-bold text-sm mb-4">
+            3
+          </div>
+          <h3 class="text-lg font-bold text-ink-900 mb-2">
+            Fast-Path Direct Dispatch
+          </h3>
+          <p class="text-xs text-ink-600 leading-relaxed font-normal">
+            When confidence clears your threshold, dispatch deterministic tool handlers directly in under 160ms. If ambiguous, forward only top-5 candidates to the LLM prompt.
+          </p>
+        </div>
+        <div class="mt-6 pt-4 border-t border-ink-100 font-mono text-[11px] text-sky-800">
+          Save 92% tokens and LLM cost
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Tool Catalog Inspector Modal -->
+  <div id="tool-catalog-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-ink-900/40 backdrop-blur-sm">
+    <div class="w-full max-w-3xl max-h-[85vh] bg-white rounded-2xl border border-ink-200 shadow-2xl flex flex-col overflow-hidden">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-ink-200 flex items-center justify-between bg-canvas">
+        <div>
+          <h3 class="font-bold text-ink-900 text-lg">Active Tool Catalog Inspector</h3>
+          <p class="text-xs text-ink-600 mt-0.5">Explore active schemas and add custom tool definitions</p>
+        </div>
+        <button type="button" id="btn-close-catalog" class="w-8 h-8 rounded-full bg-ink-100 text-ink-700 hover:bg-ink-200 flex items-center justify-center text-sm font-bold transition-colors">
+          ✕
+        </button>
+      </div>
+
+      <!-- Search & Add Tool -->
+      <div class="p-6 border-b border-ink-200 bg-white flex flex-col gap-4">
+        <input
+          id="tool-catalog-search"
+          type="text"
+          placeholder="Filter tools by name, description, or domain..."
+          class="w-full px-3.5 py-2.5 rounded-xl bg-canvas border border-ink-200 text-ink-900 placeholder:text-ink-400 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-peach-300"
+        />
+
+        <!-- Add Custom Tool Form Accordion -->
+        <details class="group rounded-xl border border-ink-200 bg-ink-50/50 p-3 text-xs">
+          <summary class="font-mono font-semibold text-ink-800 cursor-pointer select-none">
+            + Add New Custom Tool to Catalog
+          </summary>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 pt-3 border-t border-ink-200">
+            <div>
+              <label class="block font-mono text-[10px] uppercase text-ink-500 mb-1">Tool Name</label>
+              <input id="new-tool-name" type="text" placeholder="e.g. sentry_capture_issue" class="w-full px-3 py-1.5 rounded-lg bg-white border border-ink-200 text-ink-900 font-mono text-xs" />
+            </div>
+            <div>
+              <label class="block font-mono text-[10px] uppercase text-ink-500 mb-1">Domain</label>
+              <input id="new-tool-domain" type="text" placeholder="e.g. monitoring" class="w-full px-3 py-1.5 rounded-lg bg-white border border-ink-200 text-ink-900 font-mono text-xs" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block font-mono text-[10px] uppercase text-ink-500 mb-1">Description</label>
+              <input id="new-tool-desc" type="text" placeholder="e.g. Capture runtime exceptions and error traces to Sentry" class="w-full px-3 py-1.5 rounded-lg bg-white border border-ink-200 text-ink-900 text-xs" />
+            </div>
+            <div class="sm:col-span-2">
+              <label class="block font-mono text-[10px] uppercase text-ink-500 mb-1">Matching Criteria</label>
+              <input id="new-tool-crit" type="text" placeholder="e.g. Send error report, log stack trace, capture bug report" class="w-full px-3 py-1.5 rounded-lg bg-white border border-ink-200 text-ink-900 text-xs" />
+            </div>
+            <div class="sm:col-span-2 flex items-center justify-between pt-1">
+              <span id="add-tool-notice" class="hidden text-xs font-mono text-emerald-700"></span>
+              <button type="button" id="btn-add-tool" class="micro-sheen ml-auto px-4 py-2 rounded-lg bg-ink-900 text-white font-semibold text-xs hover:bg-ink-800 transition-all">
+                Add Tool to Engine
+              </button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <!-- Catalog List Body -->
+      <div id="tool-catalog-list" class="p-6 overflow-y-auto max-h-[50vh] flex flex-col gap-2.5">
+        <!-- Rendered by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer adhering strictly to Taste Skill -->
+  <footer class="mt-20 border-t border-ink-200 py-12 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
+    <div class="flex flex-col sm:flex-row items-center justify-between gap-6">
+      <div class="flex items-center gap-2 text-sm text-ink-600 font-medium">
+        <span>MIT License</span>
+        <span>•</span>
+        <span>© <a href="https://h3manth.com" class="text-ink-900 hover:underline">Hemanth HM</a></span>
+        <span>•</span>
+        <span>Designed with good taste via <a href="https://www.tasteskill.dev/" target="_blank" rel="noreferrer" class="text-peach-800 font-semibold hover:underline">tasteskill.dev</a></span>
+      </div>
+
+      <div class="flex items-center gap-5 text-sm font-mono text-ink-600">
+        <a href="https://github.com/hemanth/tool-prune" class="hover:text-ink-900 transition-colors">GitHub</a>
+        <a href="https://www.npmjs.com/package/tool-prune" class="hover:text-ink-900 transition-colors">npm</a>
+        <a href="https://pypi.org/project/tool-prune/" class="hover:text-ink-900 transition-colors">PyPI</a>
+        <a href="#hero" class="hover:text-ink-900 transition-colors">Back to top ↑</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script type="module" src="./js/turboquant.js"></script>
+  <script type="module" src="./js/catalog.js"></script>
+  <script type="module" src="./js/playground.js"></script>
+</body>
+</html>
