@@ -1,3 +1,5 @@
+import { TurboQuantEngine } from './turboquant.js';
+
 /**
  * Normalize diverse tool definitions (Dict, Array, MCP Schema) into a clean criteria map.
  */
@@ -40,14 +42,35 @@ export class ToolPruner {
     this.model = options.model || 'jev-latest';
     this.threshold = options.threshold ?? 0.85;
     this.defaultTopK = options.topK ?? 3;
+    this.requestedEngine = options.engine;
+    this._tqEngine = null;
+    this._wasmEngine = null;
+  }
+
+  /**
+   * Determine engine: explicit option, or fallback to turboquant if no API key.
+   */
+  getEngine(options = {}) {
+    const eng = options.engine || this.requestedEngine;
+    if (eng) return eng;
+    return this.apiKey ? 'typesafe' : 'turboquant';
   }
 
   /**
    * Select the most appropriate tool for a given query with calibrated confidence.
    */
   async select(query, options = {}) {
-    if (!this.apiKey) {
-      throw new Error('TypeSafe API key required. Set TYPESAFE_API_KEY or pass { apiKey }.');
+    const engine = this.getEngine(options);
+    if (engine === 'turboquant') {
+      return this._selectTurboQuant(query, options);
+    }
+    return this._selectTypeSafe(query, options);
+  }
+
+  async _selectTypeSafe(query, options = {}) {
+    const key = options.apiKey || this.apiKey;
+    if (!key) {
+      throw new Error("TypeSafe API key required. Set TYPESAFE_API_KEY, pass { apiKey }, or use { engine: 'turboquant' }.");
     }
 
     const state = typeof query === 'string' ? { intent: query } : query;
@@ -71,7 +94,7 @@ export class ToolPruner {
     const res = await fetch(this.endpoint, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(body)
@@ -107,8 +130,73 @@ export class ToolPruner {
       topK,
       requiresGeneration,
       latency,
+      engine: 'typesafe',
       usage: data.usage,
       raw: data
+    };
+  }
+
+  async _selectTurboQuant(query, options = {}) {
+    const qStr = typeof query === 'string' ? query : (query.intent || query.query || JSON.stringify(query));
+    const start = performance.now();
+
+    // Check if turboquant-search (WASM) is available
+    if (!this._tqEngine) {
+      try {
+        const { TurboSearch } = await import('turboquant-search');
+        const data = Array.from(this.registry.values()).map(t => ({
+          name: t.name,
+          description: t.description || '',
+          criteria: t.criteria || ''
+        }));
+        this._wasmEngine = await TurboSearch.from(data, {
+          fields: ['name', 'description', 'criteria'],
+          dim: 384,
+          bits: 3
+        });
+      } catch {
+        // Fallback to built-in zero-dependency TurboQuant engine
+        this._tqEngine = new TurboQuantEngine();
+        const toolsMap = {};
+        for (const [name, tool] of this.registry.entries()) {
+          toolsMap[name] = tool;
+        }
+        this._tqEngine.fit(toolsMap);
+      }
+    }
+
+    const k = options.topK || this.defaultTopK;
+    let topK = [];
+
+    if (this._wasmEngine) {
+      const results = await this._wasmEngine.search(qStr, { topK: k });
+      topK = results.map(r => ({
+        name: r.data?.name || '',
+        probability: r.score || 0,
+        score: r.score || 0,
+        tool: this.registry.get(r.data?.name)
+      }));
+    } else {
+      const rawResults = this._tqEngine.search(qStr, k);
+      topK = rawResults.map(r => ({
+        name: r.name,
+        probability: r.probability,
+        score: r.score,
+        tool: this.registry.get(r.name)
+      }));
+    }
+
+    const latency = performance.now() - start;
+    const top1 = topK[0];
+
+    return {
+      tool: top1?.name || '',
+      confidence: top1?.probability || 0,
+      probability: top1?.probability || 0,
+      topK,
+      requiresGeneration: 0,
+      latency,
+      engine: 'turboquant'
     };
   }
 
@@ -155,4 +243,3 @@ export default function toolPrune(arg1, arg2, options) {
 
 toolPrune.ToolPruner = ToolPruner;
 toolPrune.normalizeTools = normalizeTools;
-

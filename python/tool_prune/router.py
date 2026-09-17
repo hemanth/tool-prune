@@ -3,14 +3,17 @@ import time
 import json
 import urllib.request
 import urllib.error
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Union
+
+from .turboquant import get_turboquant_engine
 
 @dataclass
 class CandidateTool:
     name: str
     probability: float
     tool: Any = None
+    score: Optional[float] = None
 
 @dataclass
 class SelectionResult:
@@ -20,6 +23,7 @@ class SelectionResult:
     top_k: List[CandidateTool]
     requires_generation: float
     latency_ms: float
+    engine: str = "typesafe"
     usage: Optional[Dict[str, int]] = None
     raw: Optional[Dict[str, Any]] = None
 
@@ -58,6 +62,7 @@ class ToolPrune:
         endpoint: str = "https://api.typesafe.ai/v1/systemone",
         threshold: float = 0.85,
         top_k: int = 3,
+        engine: Optional[str] = None,
     ):
         self.criteria, self.registry = _normalize_tools(tools)
         self.api_key = api_key or os.getenv("TYPESAFE_API_KEY")
@@ -65,10 +70,18 @@ class ToolPrune:
         self.endpoint = endpoint
         self.threshold = threshold
         self.top_k = top_k
+        self.requested_engine = engine
+        self._tq_engine = None
+
+    def get_engine(self, **kwargs) -> str:
+        eng = kwargs.get("engine") or self.requested_engine
+        if eng:
+            return eng
+        return "typesafe" if self.api_key else "turboquant"
 
     def _prepare_payload(self, query: Union[str, Dict[str, Any]], options: Optional[Dict[str, Any]] = None) -> bytes:
         if not self.api_key:
-            raise ValueError("TypeSafe API key required. Set TYPESAFE_API_KEY environment variable or pass api_key.")
+            raise ValueError("TypeSafe API key required. Set TYPESAFE_API_KEY environment variable, pass api_key, or use engine='turboquant'.")
 
         state = {"intent": query} if isinstance(query, str) else query
         opts = options or {}
@@ -112,11 +125,12 @@ class ToolPrune:
             top_k=top_candidates,
             requires_generation=requires_gen,
             latency_ms=latency_ms,
+            engine="typesafe",
             usage=data.get("usage"),
             raw=data,
         )
 
-    def select(self, query: Union[str, Dict[str, Any]], **kwargs) -> SelectionResult:
+    def _select_typesafe(self, query: Union[str, Dict[str, Any]], **kwargs) -> SelectionResult:
         payload = self._prepare_payload(query, kwargs)
         req = urllib.request.Request(
             self.endpoint,
@@ -140,9 +154,50 @@ class ToolPrune:
         data = json.loads(raw_data.decode("utf-8"))
         return self._process_response(data, latency_ms, kwargs.get("top_k"))
 
+    def _select_turboquant(self, query: Union[str, Dict[str, Any]], **kwargs) -> SelectionResult:
+        q_str = query if isinstance(query, str) else (query.get("intent") or query.get("query") or json.dumps(query))
+        start = time.perf_counter()
+
+        if self._tq_engine is None:
+            self._tq_engine = get_turboquant_engine(self.registry)
+
+        k = kwargs.get("top_k") or self.top_k
+        raw_results = self._tq_engine.search(q_str, top_k=k)
+        latency_ms = (time.perf_counter() - start) * 1000.0
+
+        top_candidates = [
+            CandidateTool(
+                name=r["name"],
+                probability=r["probability"],
+                tool=self.registry.get(r["name"]),
+                score=r.get("score")
+            )
+            for r in raw_results
+        ]
+
+        top1 = top_candidates[0] if top_candidates else None
+        selected_name = top1.name if top1 else ""
+        prob = top1.probability if top1 else 0.0
+
+        return SelectionResult(
+            tool=selected_name,
+            confidence=prob,
+            probability=prob,
+            top_k=top_candidates,
+            requires_generation=0.0,
+            latency_ms=latency_ms,
+            engine="turboquant",
+        )
+
+    def select(self, query: Union[str, Dict[str, Any]], **kwargs) -> SelectionResult:
+        engine = self.get_engine(**kwargs)
+        if engine == "turboquant":
+            return self._select_turboquant(query, **kwargs)
+        return self._select_typesafe(query, **kwargs)
+
     def filter(self, query: Union[str, Dict[str, Any]], k: Optional[int] = None, **kwargs) -> List[Any]:
-        result = self.select(query, top_k=k or self.top_k, **kwargs)
         target_k = k or self.top_k
+        result = self.select(query, top_k=target_k, **kwargs)
         return [c.tool if c.tool is not None else c.name for c in result.top_k[:target_k]]
 
     def dispatch(
@@ -170,4 +225,3 @@ def prune(
 ) -> SelectionResult:
     """One-shot tool pruning and selection."""
     return ToolPrune(tools, **kwargs).select(query)
-

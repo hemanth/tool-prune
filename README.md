@@ -1,12 +1,13 @@
 # tool-prune
 
-Calibrated tool selection and schema pruning for AI agents. Zero dependencies.
+Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
 
 ```bash
 npm install tool-prune
 # or
 pip install tool-prune
 
+# Optional: TypeSafe API key for cloud reasoning
 export TYPESAFE_API_KEY="apikey_..."
 ```
 
@@ -21,20 +22,21 @@ const tools = {
   webSearch: 'Search public web for documentation or articles'
 };
 
+// Works offline out of the box with TurboQuant:
 const match = await prune('what tables exist in the db?', tools);
-console.log(match.tool);       // 'runQuery'
-console.log(match.confidence); // 1.0
+console.log(match.tool);   // 'runQuery'
+console.log(match.engine); // 'turboquant'
 ```
 
-`prune()` narrows schemas to Top-K candidates or identifies direct matches in ~140ms. `dispatch()` runs immediate tool execution if confidence clears the threshold. That's the whole API.
+`prune()` runs offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. That's the whole API.
 
 ## Schema pruning for LLMs
 
-Instead of dumping 60 MCP tool definitions into every prompt, prune them to the top candidates before calling your LLM:
+Instead of dumping 100 MCP tool schemas into every prompt, prune them to the top candidates before calling your LLM:
 
 ```js
 const router = prune(tools);
-const topTools = await router.filter(userPrompt, { k: 3 });
+const topTools = await router.filter(userPrompt, { k: 5 });
 
 const response = await llm.chat({
   tools: topTools,
@@ -42,11 +44,11 @@ const response = await llm.chat({
 });
 ```
 
-Drops prompt tokens by 75-85% and eliminates context distraction without losing tools.
+Cuts prompt tokens by up to 92% and eliminates LLM context confusion.
 
 ## Fast-path direct dispatch
 
-Bypass the LLM entirely when confidence clears the threshold:
+Bypass the LLM entirely when confidence clears your threshold:
 
 ```js
 const result = await router.dispatch('read ./package.json', {
@@ -56,61 +58,53 @@ const result = await router.dispatch('read ./package.json', {
 });
 ```
 
-Runs deterministic handlers in under 160ms with zero token cost.
+Deterministic tool execution in under 160ms with zero LLM generation cost.
 
-## Config
+## Dual engine
 
-Set `TYPESAFE_API_KEY` in your environment, or pass options directly:
+Select between offline vector search and cloud reasoning:
 
 ```js
-const router = prune(tools, {
-  apiKey: 'apikey_...', // defaults to process.env.TYPESAFE_API_KEY
-  threshold: 0.85,     // confidence ceiling for fast-path dispatch
-  topK: 3              // candidate schemas to retain
-});
+// Explicitly pick engine
+const localMatch = await prune(query, tools, { engine: 'turboquant' });
+const cloudMatch = await prune(query, tools, { engine: 'typesafe', apiKey: '...' });
 ```
 
-In Python:
-
-```python
-router = ToolPrune(tools,
-    api_key="apikey_...",  # defaults to os.getenv("TYPESAFE_API_KEY")
-    threshold=0.85,
-    top_k=3
-)
-```
+- **turboquant**: 100% offline, zero network, zero dependencies. Uses `turboquant-search` (WASM SIMD) in JS or `turbovec` (Rust SIMD) in Python if installed, with seamless built-in FWHT fallback.
+- **typesafe**: Cloud System One reasoning (Jev). 100% Top-1 accuracy on subtle distractors with calibrated probabilities.
 
 ## Python
 
-Identical API and zero third-party dependencies:
+Identical API and zero required dependencies:
 
 ```python
 from tool_prune import prune, ToolPrune
 
+# One-shot offline pruning
 match = prune("what tables exist in the db?", tools)
-print(match.tool, match.confidence)
+print(match.tool, match.engine)
 
-# Or as a reusable router
+# Reusable router for LLM prompt pruning
 router = ToolPrune(tools)
-candidates = router.filter(user_prompt, k=3)
+candidates = router.filter(user_prompt, k=5)
 ```
 
-## Benchmark
+## Berkeley Function Calling Leaderboard (BFCL v3)
 
-Evaluated across 60 realistic tools with semantic collision zones against standard baselines:
+Evaluated on Gorilla BFCL v3 multiple-tool benchmark:
 
-| Method | LLM Turns | Accuracy | Latency | Tokens / Turn |
-|---|---|---|---|---|
-| Full-Context Injection | 1 | 86.1% | 2,875 ms | 8,740 |
-| Tool-Search-Tool | 2 | 87.3% | 1,030 ms | 1,360 |
-| **tool-prune (Top-3)** | 1 | **100.0%** | **741 ms** | **1,145** |
-| **tool-prune (Direct)** | **0** | **97.5%** | **161 ms** | **385** |
+| Engine | Backend | Distractor Top-1 | 100-Tool Top-5 Prune | Latency | Network |
+|---|---|---|---|---|---|
+| **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 258 ms | Cloud API |
+| **TurboQuant** | JS WASM (`turboquant-search`) | 86.7% | 85.0% | 14 ms | Offline |
+| **TurboQuant** | Python Rust (`turbovec`) | 85.0% | 82.5% | 0.023 ms | Offline |
+| **TurboQuant** | Pure JS / Python (built-in) | 83.3% | 82.5% | 0.4 ms | Offline |
 
-Run the benchmarks:
+Run evaluation:
 
 ```bash
-node bench/run.mjs --size 30
-node bench/run.mjs --size 60
+node bench/run_bfcl_eval.mjs
+python3 bench/run_turbovec_bench.py
 ```
 
 ## License

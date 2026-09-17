@@ -1,9 +1,14 @@
 # tool-prune
 
-Calibrated tool selection and schema pruning for AI agents. Zero dependencies.
+Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
 
 ```bash
 pip install tool-prune
+
+# Optional SIMD acceleration
+pip install turbovec
+
+# Optional: TypeSafe API key for cloud reasoning
 export TYPESAFE_API_KEY="apikey_..."
 ```
 
@@ -18,12 +23,13 @@ tools = {
     "web_search": "Search public web for documentation or articles"
 }
 
+# Works offline out of the box with TurboQuant:
 match = prune("what tables exist in the db?", tools)
-print(match.tool)       # 'run_query'
-print(match.confidence) # 1.0
+print(match.tool)   # 'run_query'
+print(match.engine) # 'turboquant'
 ```
 
-`prune()` narrows schemas to Top-K candidates or identifies direct matches in ~140ms. `dispatch()` runs immediate tool execution if confidence clears the threshold. That's the whole API.
+`prune()` narrows schemas offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. That's the whole API.
 
 ## Schema pruning for LLMs
 
@@ -31,7 +37,7 @@ print(match.confidence) # 1.0
 from tool_prune import ToolPrune
 
 router = ToolPrune(tools)
-top_tools = router.filter(user_prompt, k=3)
+top_tools = router.filter(user_prompt, k=5)
 
 response = llm.chat(
     tools=top_tools,
@@ -39,7 +45,7 @@ response = llm.chat(
 )
 ```
 
-Drops prompt tokens by 75-85% and eliminates context distraction without losing tools.
+Cuts prompt tokens by up to 92% and eliminates context confusion without losing tools.
 
 ## Fast-path direct dispatch
 
@@ -53,25 +59,21 @@ result = router.dispatch("read ./pyproject.toml", {
 
 Runs deterministic handlers in under 160ms with zero token cost.
 
-## Config
-
-Set `TYPESAFE_API_KEY` in your environment, or pass options directly:
+## Dual engine
 
 ```python
-router = ToolPrune(tools,
-    api_key="apikey_...",  # defaults to os.getenv("TYPESAFE_API_KEY")
-    threshold=0.85,        # confidence ceiling for fast-path dispatch
-    top_k=3                # candidate schemas to retain
-)
+local_match = prune(query, tools, engine="turboquant")
+cloud_match = prune(query, tools, engine="typesafe", api_key="...")
 ```
+
+- **turboquant**: 100% offline, zero network, zero dependencies. Uses `turbovec` (Rust SIMD) if installed, with built-in FWHT fallback.
+- **typesafe**: Cloud System One reasoning (Jev). 100% Top-1 accuracy on subtle distractors with calibrated probabilities.
 
 ## Demo
 
 ```bash
 python examples/quickstart.py
 ```
-
-Runs live quickstart routing with your `TYPESAFE_API_KEY`.
 
 ## License
 

@@ -13,6 +13,7 @@ export interface ToolPruneOptions {
   apiKey?: string;
   endpoint?: string;
   model?: string;
+  engine?: 'typesafe' | 'turboquant';
   threshold?: number;
   topK?: number;
 }
@@ -20,6 +21,7 @@ export interface ToolPruneOptions {
 export interface CandidateTool {
   name: string;
   probability: number;
+  score?: number;
   tool?: any;
 }
 
@@ -30,6 +32,7 @@ export interface SelectionResult {
   topK: CandidateTool[];
   requiresGeneration: number;
   latency: number;
+  engine?: string;
   usage?: {
     input_tokens: number;
     output_tokens: number;

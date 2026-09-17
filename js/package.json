@@ -1,7 +1,7 @@
 {
   "name": "tool-prune",
-  "version": "0.1.0",
-  "description": "Fast, calibrated tool selection and schema pruning for AI agents using TypeSafe System One.",
+  "version": "0.2.0",
+  "description": "Fast, calibrated tool selection and schema pruning for AI agents using TypeSafe System One and TurboQuant vector search.",
   "type": "module",
   "main": "index.js",
   "types": "index.d.ts",
@@ -25,6 +25,7 @@
   "keywords": [
     "tool-prune",
     "tool-selection",
+    "turboquant",
     "mcp",
     "agent",
     "typesafe",
@@ -37,6 +38,9 @@
   "license": "MIT",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "optionalDependencies": {
+    "turboquant-search": "^0.1.1"
   },
   "repository": {
     "type": "git",

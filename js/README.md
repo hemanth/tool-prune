@@ -1,9 +1,14 @@
 # tool-prune
 
-Calibrated tool selection and schema pruning for AI agents. Zero dependencies.
+Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
 
 ```bash
 npm install tool-prune
+
+# Optional SIMD acceleration
+npm install turboquant-search
+
+# Optional: TypeSafe API key for cloud reasoning
 export TYPESAFE_API_KEY="apikey_..."
 ```
 
@@ -18,18 +23,19 @@ const tools = {
   webSearch: 'Search public web for documentation or articles'
 };
 
+// Works offline out of the box with TurboQuant:
 const match = await prune('what tables exist in the db?', tools);
-console.log(match.tool);       // 'runQuery'
-console.log(match.confidence); // 1.0
+console.log(match.tool);   // 'runQuery'
+console.log(match.engine); // 'turboquant'
 ```
 
-`prune()` narrows schemas to Top-K candidates or identifies direct matches in ~140ms. `dispatch()` runs immediate tool execution if confidence clears the threshold. That's the whole API.
+`prune()` narrows schemas offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. That's the whole API.
 
 ## Schema pruning for LLMs
 
 ```js
 const router = prune(tools);
-const topTools = await router.filter(userPrompt, { k: 3 });
+const topTools = await router.filter(userPrompt, { k: 5 });
 
 const response = await llm.chat({
   tools: topTools,
@@ -37,7 +43,7 @@ const response = await llm.chat({
 });
 ```
 
-Drops prompt tokens by 75-85% and eliminates context distraction without losing tools.
+Cuts prompt tokens by up to 92% and eliminates context confusion without losing tools.
 
 ## Fast-path direct dispatch
 
@@ -51,25 +57,21 @@ const result = await router.dispatch('read ./package.json', {
 
 Runs deterministic handlers in under 160ms with zero token cost.
 
-## Config
-
-Set `TYPESAFE_API_KEY` in your environment, or pass options directly:
+## Dual engine
 
 ```js
-const router = prune(tools, {
-  apiKey: 'apikey_...', // defaults to process.env.TYPESAFE_API_KEY
-  threshold: 0.85,     // confidence ceiling for fast-path dispatch
-  topK: 3              // candidate schemas to retain
-});
+const localMatch = await prune(query, tools, { engine: 'turboquant' });
+const cloudMatch = await prune(query, tools, { engine: 'typesafe', apiKey: '...' });
 ```
+
+- **turboquant**: 100% offline, zero network, zero dependencies. Uses `turboquant-search` (WASM SIMD) if installed, with built-in FWHT fallback.
+- **typesafe**: Cloud System One reasoning (Jev). 100% Top-1 accuracy on subtle distractors with calibrated probabilities.
 
 ## Demo
 
 ```bash
 npm run demo
 ```
-
-Runs live quickstart routing with your `TYPESAFE_API_KEY`.
 
 ## License
 
