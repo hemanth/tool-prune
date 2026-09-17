@@ -460,20 +460,9 @@ result = router.dispatch(${JSON.stringify(qStr)}, {
 
     this.currentRawCode = code;
 
-    // Syntax highlighting via WebGPU gpu-lexer with fast fallback
-    const { html, engine } = await highlightCode(code, this.activeCodeLang);
+    // Apply syntax highlighting
+    const { html } = await highlightCode(code, this.activeCodeLang);
     this.codeSnippetEl.innerHTML = html;
-
-    const badge = document.getElementById('highlighter-engine-badge');
-    if (badge) {
-      if (engine === 'webgpu') {
-        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-sage-300 bg-sage-900/80 border border-sage-600/70 inline-flex items-center gap-1';
-        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse"></span>WebGPU (gpu-lexer)';
-      } else {
-        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-ink-400 bg-ink-800 border border-ink-700 inline-flex items-center gap-1';
-        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-ink-500"></span>Lexer';
-      }
-    }
   }
 
   renderCatalogList(filter = '') {
