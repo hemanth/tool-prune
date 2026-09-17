@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "tool-prune"
-version = "0.1.0"
+version = "0.1.1"
 description = "Calibrated tool selection and schema pruning for AI agents. Zero dependencies."
 readme = "README.md"
 requires-python = ">=3.9"
