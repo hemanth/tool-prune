@@ -1,0 +1,45 @@
+{
+  "name": "tool-prune",
+  "version": "0.1.0",
+  "description": "Fast, calibrated tool selection and schema pruning for AI agents using TypeSafe System One.",
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "lib/",
+    "index.js",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/index.test.js",
+    "demo": "node examples/quickstart.js"
+  },
+  "keywords": [
+    "tool-prune",
+    "tool-selection",
+    "mcp",
+    "agent",
+    "typesafe",
+    "router",
+    "system-one",
+    "llm",
+    "function-calling"
+  ],
+  "author": "Hemanth HM <hemanth.hm@gmail.com> (https://h3manth.com)",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hemanth/tool-prune"
+  }
+}

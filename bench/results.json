@@ -1,0 +1,24 @@
+{
+  "catalogSize": 60,
+  "queriesCount": 79,
+  "fullContext": {
+    "accuracy": 86.07594936708861,
+    "latencyMs": 2875,
+    "tokensPerTurn": 8740
+  },
+  "toolSearch": {
+    "accuracy": 87.34177215189874,
+    "latencyMs": 1030,
+    "tokensPerTurn": 1360
+  },
+  "toolPruneTop3": {
+    "accuracy": 100,
+    "latencyMs": 735,
+    "tokensPerTurn": 1145
+  },
+  "toolPruneDirect": {
+    "accuracy": 97.46835443037975,
+    "latencyMs": 155,
+    "tokensPerTurn": 385
+  }
+}
