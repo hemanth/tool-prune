@@ -6,6 +6,8 @@ Calibrated tool selection and schema pruning for AI agents. Zero dependencies.
 npm install tool-prune
 # or
 pip install tool-prune
+
+export TYPESAFE_API_KEY="apikey_..."
 ```
 
 ## Quick start
@@ -55,6 +57,28 @@ const result = await router.dispatch('read ./package.json', {
 ```
 
 Runs deterministic handlers in under 160ms with zero token cost.
+
+## Config
+
+Set `TYPESAFE_API_KEY` in your environment, or pass options directly:
+
+```js
+const router = prune(tools, {
+  apiKey: 'apikey_...', // defaults to process.env.TYPESAFE_API_KEY
+  threshold: 0.85,     // confidence ceiling for fast-path dispatch
+  topK: 3              // candidate schemas to retain
+});
+```
+
+In Python:
+
+```python
+router = ToolPrune(tools,
+    api_key="apikey_...",  # defaults to os.getenv("TYPESAFE_API_KEY")
+    threshold=0.85,
+    top_k=3
+)
+```
 
 ## Python
 
