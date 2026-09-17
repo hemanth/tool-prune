@@ -172,6 +172,37 @@
     ::-webkit-scrollbar-thumb:hover {
       background: #c8c2b7;
     }
+
+    /* Syntax Highlighter Tokens (gpu-lexer pastel palette) */
+    .token-keyword {
+      color: #fca582;
+      font-weight: 600;
+    }
+    .token-string {
+      color: #8ce3b9;
+    }
+    .token-comment {
+      color: #8b99a8;
+      font-style: italic;
+    }
+    .token-number {
+      color: #fde28e;
+    }
+    .token-function {
+      color: #cda9f7;
+    }
+    .token-type {
+      color: #8fd0fa;
+    }
+    .token-constant {
+      color: #fca7a7;
+    }
+    .token-operator {
+      color: #dcd6cd;
+    }
+    .token-plain {
+      color: #e5e1d8;
+    }
   </style>
 </head>
 
@@ -471,13 +502,18 @@
                 </button>
               </div>
 
-              <button type="button" data-copy-target="code-snippet" class="micro-sheen px-2.5 py-1 rounded-lg bg-ink-800 hover:bg-ink-700 text-ink-200 text-xs font-mono flex items-center gap-1 transition-all border border-ink-700">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                </svg>
-                <span>Copy</span>
-              </button>
+              <div class="flex items-center gap-2">
+                <a href="https://gpu-lexer.vercel.app/" target="_blank" rel="noreferrer" title="Language-agnostic syntax highlighting via WebGPU gpu-lexer by Shu Ding" id="highlighter-engine-badge" class="px-2 py-0.5 rounded-full text-[10px] font-mono text-ink-400 bg-ink-800 border border-ink-700 hover:text-ink-200 transition-colors inline-flex items-center gap-1">
+                  <span class="w-1.5 h-1.5 rounded-full bg-ink-500"></span>WebGPU (gpu-lexer)
+                </a>
+                <button type="button" data-copy-target="code-snippet" class="micro-sheen px-2.5 py-1 rounded-lg bg-ink-800 hover:bg-ink-700 text-ink-200 text-xs font-mono flex items-center gap-1 transition-all border border-ink-700">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                  <span>Copy</span>
+                </button>
+              </div>
             </div>
 
             <pre class="overflow-x-auto font-mono text-xs text-ink-200 leading-relaxed flex-1"><code id="code-snippet">

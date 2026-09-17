@@ -1,5 +1,6 @@
 import { TurboQuantEngine } from './turboquant.js';
 import { PRESETS, SAMPLE_QUERIES } from './catalog.js';
+import { highlightCode } from './highlighter.js';
 
 class PlaygroundApp {
   constructor() {
@@ -11,6 +12,7 @@ class PlaygroundApp {
     this.selectedEngineType = 'turboquant';
     this.customApiKey = '';
     this.activeCodeLang = 'js';
+    this.currentRawCode = '';
 
     // UI elements
     this.queryInput = document.getElementById('query-input');
@@ -144,7 +146,12 @@ class PlaygroundApp {
     document.querySelectorAll('[data-copy-target]').forEach(btn => {
       btn.addEventListener('click', () => {
         const targetId = btn.getAttribute('data-copy-target');
-        const text = document.getElementById(targetId)?.textContent || '';
+        let text = '';
+        if (targetId === 'code-snippet' && this.currentRawCode) {
+          text = this.currentRawCode;
+        } else {
+          text = document.getElementById(targetId)?.textContent || '';
+        }
         navigator.clipboard.writeText(text).then(() => {
           const originalText = btn.innerHTML;
           btn.innerHTML = `
@@ -395,10 +402,10 @@ class PlaygroundApp {
     }
   }
 
-  updateCodeSnippet(query = '', top1 = null) {
+  async updateCodeSnippet(query = '', top1 = null) {
     if (!this.codeSnippetEl) return;
-    const qStr = query || 'read the package.json file to see dependencies';
-    const toolName = top1?.name || 'fs_read_file';
+    const qStr = query || (this.queryInput?.value || '').trim() || 'read the package.json file to see dependencies';
+    const toolName = top1?.name || (this.engine.search(qStr, 1)[0]?.name) || 'fs_read_file';
 
     let code = '';
     if (this.activeCodeLang === 'js') {
@@ -451,7 +458,22 @@ result = router.dispatch(${JSON.stringify(qStr)}, {
 })`;
     }
 
-    this.codeSnippetEl.textContent = code;
+    this.currentRawCode = code;
+
+    // Syntax highlighting via WebGPU gpu-lexer with fast fallback
+    const { html, engine } = await highlightCode(code, this.activeCodeLang);
+    this.codeSnippetEl.innerHTML = html;
+
+    const badge = document.getElementById('highlighter-engine-badge');
+    if (badge) {
+      if (engine === 'webgpu') {
+        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-sage-300 bg-sage-900/80 border border-sage-600/70 inline-flex items-center gap-1';
+        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-sage-400 animate-pulse"></span>WebGPU (gpu-lexer)';
+      } else {
+        badge.className = 'px-2 py-0.5 rounded-full text-[10px] font-mono text-ink-400 bg-ink-800 border border-ink-700 inline-flex items-center gap-1';
+        badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-ink-500"></span>Lexer';
+      }
+    }
   }
 
   renderCatalogList(filter = '') {
