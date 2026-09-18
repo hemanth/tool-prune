@@ -388,7 +388,11 @@ class PlaygroundApp {
         <div>
           <span class="font-mono text-neutral-600 font-semibold block mb-1">Routing Action</span>
           <div class="p-2.5 rounded-xl ${isDirectDispatch ? 'bg-emerald-50 border border-emerald-200 text-emerald-950' : 'bg-neutral-50 border border-neutral-200 text-neutral-800'} flex items-center gap-2">
-            <span class="text-base">${isDirectDispatch ? '⚡' : '🤖'}</span>
+            <span class="inline-flex items-center shrink-0">
+              ${isDirectDispatch
+                ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="text-emerald-700"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>'
+                : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" class="text-amber-700"><rect width="18" height="12" x="3" y="6" rx="2"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M12 2v4"/><path d="M7 2h10"/></svg>'}
+            </span>
             <div>
               <div class="font-semibold">${isDirectDispatch ? 'Direct Dispatch' : 'LLM Schema Prune'}</div>
               <div class="text-[11px] text-neutral-600">
@@ -458,7 +462,9 @@ class PlaygroundApp {
     if (isDirect) {
       this.dispatchStatus.className = 'p-4 rounded-xl border border-emerald-300/80 bg-emerald-50/80 text-emerald-950 flex items-start gap-3';
       this.dispatchStatus.innerHTML = `
-        <div class="w-7 h-7 rounded-lg bg-emerald-200/70 text-emerald-800 flex items-center justify-center shrink-0 mt-0.5 font-mono text-sm">⚡</div>
+        <div class="w-7 h-7 rounded-lg bg-emerald-200/70 text-emerald-800 flex items-center justify-center shrink-0 mt-0.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
         <div class="text-sm">
           <p class="font-semibold text-emerald-900">Fast-Path Direct Dispatch Triggered (${Math.round(prob * 100)}% ≥ ${Math.round(this.threshold * 100)}%)</p>
           <p class="text-xs text-emerald-800/90 mt-0.5 leading-relaxed">
@@ -472,7 +478,9 @@ class PlaygroundApp {
         ? `Auto-selected ${candCount} candidate schemas based on confidence drop-off.`
         : `Pruned your MCP catalog to the top-${this.topK} candidate schemas.`;
       this.dispatchStatus.innerHTML = `
-        <div class="w-7 h-7 rounded-lg bg-amber-200/70 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 font-mono text-sm">🤖</div>
+        <div class="w-7 h-7 rounded-lg bg-amber-200/70 text-amber-800 flex items-center justify-center shrink-0 mt-0.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="6" rx="2"/><circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M12 2v4"/><path d="M7 2h10"/></svg>
+        </div>
         <div class="text-sm">
           <p class="font-semibold text-amber-900">Prompt Schema Pruned for LLM (${Math.round(prob * 100)}% < ${Math.round(this.threshold * 100)}%)</p>
           <p class="text-xs text-amber-800/90 mt-0.5 leading-relaxed">

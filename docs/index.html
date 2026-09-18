@@ -296,16 +296,20 @@
       <!-- Quick Feature Metrics in Pastel Badges -->
       <div class="mt-8 flex flex-wrap items-center gap-2 pt-2 border-t border-ink-200/60">
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sage-100 text-sage-800 border border-sage-200">
-          ⚡ 0.4ms offline TurboQuant
+          <span class="w-1.5 h-1.5 rounded-full bg-sage-700"></span>
+          0.4ms offline TurboQuant
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-peach-100 text-peach-800 border border-peach-200">
-          ✂️ -92% prompt tokens
+          <span class="w-1.5 h-1.5 rounded-full bg-peach-700"></span>
+          -92% prompt tokens
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-lavender-100 text-lavender-800 border border-lavender-200">
-          🧠 100% BFCL Top-1 (TypeSafe)
+          <span class="w-1.5 h-1.5 rounded-full bg-lavender-700"></span>
+          100% BFCL Top-1 (TypeSafe)
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sky-100 text-sky-800 border border-sky-200">
-          📦 Zero external dependencies
+          <span class="w-1.5 h-1.5 rounded-full bg-sky-700"></span>
+          Zero external dependencies
         </span>
       </div>
     </div>
@@ -399,7 +403,7 @@
             <span class="font-mono text-ink-700 font-medium">Candidate Mode:</span>
             <div class="inline-flex p-0.5 rounded-lg bg-ink-200/60 border border-ink-200">
               <button id="btn-mode-auto" type="button" class="px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-all bg-white text-ink-900 shadow-sm">
-                ⚡ Auto
+                Auto
               </button>
               <button id="btn-mode-fixed" type="button" class="px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all text-ink-600 hover:text-ink-900">
                 Fixed K
@@ -608,7 +612,7 @@
         </div>
 
         <div class="p-3.5 rounded-xl bg-sage-50 border border-sage-200 text-xs text-sage-800 leading-relaxed font-normal">
-          💡 Assumes average tool schema specification is 160 tokens and pruning selects Top-3 candidates.
+          Note: Assumes average tool schema specification is 160 tokens and pruning selects Top-3 candidates.
         </div>
       </div>
 
@@ -820,8 +824,8 @@
           <h3 class="font-bold text-ink-900 text-lg">Active Tool Catalog Inspector</h3>
           <p class="text-xs text-ink-600 mt-0.5">Explore active schemas and add custom tool definitions</p>
         </div>
-        <button type="button" id="btn-close-catalog" class="w-8 h-8 rounded-full bg-ink-100 text-ink-700 hover:bg-ink-200 flex items-center justify-center text-sm font-bold transition-colors">
-          ✕
+        <button type="button" id="btn-close-catalog" class="w-8 h-8 rounded-full bg-ink-100 text-ink-700 hover:bg-ink-200 flex items-center justify-center text-sm font-bold transition-colors" aria-label="Close catalog">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
         </button>
       </div>
 
