@@ -184,6 +184,63 @@ export class TurboQuantEngine {
   }
 }
 
+/**
+ * Automatically select the most relevant tool candidates based on score distribution,
+ * cliff / elbow drop-off, and relevance floors.
+ */
+export function autoSelectCandidates(candidates, options = {}) {
+  if (!candidates || candidates.length === 0) return [];
+
+  const maxK = options.maxK ?? 5;
+  const minK = options.minK ?? (options.allowEmpty ? 0 : 1);
+  const minScore = options.minScore ?? 0.12;
+  const minProb = options.minProbability ?? options.minProb ?? 0.20;
+  const relativeThreshold = options.relativeThreshold ?? 0.70;
+  const cliffRatio = options.cliffRatio ?? 0.75;
+  const dominantMargin = options.dominantMargin ?? 0.14;
+
+  const top1 = candidates[0];
+  const hasScore = typeof top1.score === 'number';
+  const topVal = hasScore ? top1.score : top1.probability;
+  const floorVal = hasScore ? minScore : minProb;
+
+  if (topVal < floorVal) {
+    return minK > 0 ? candidates.slice(0, minK) : [];
+  }
+
+  const selected = [top1];
+
+  for (let i = 1; i < Math.min(candidates.length, maxK); i++) {
+    const curr = candidates[i];
+    const prev = candidates[i - 1];
+
+    if (hasScore) {
+      if (curr.score < minScore) break;
+      // Dominant lead: top1 is strong and clearly ahead
+      if (top1.score >= 0.35 && (top1.score - curr.score) > dominantMargin) break;
+      // Relative to top1
+      if ((curr.score / Math.max(1e-6, top1.score)) < relativeThreshold) break;
+      // Cliff drop from previous
+      if (prev.score > 0 && (curr.score / prev.score) < cliffRatio) break;
+    } else {
+      if (curr.probability < minProb) break;
+      if (top1.probability >= 0.70 && (top1.probability - curr.probability) > 0.20) break;
+      if ((curr.probability / Math.max(1e-6, top1.probability)) < relativeThreshold) break;
+      if (prev.probability > 0 && (curr.probability / prev.probability) < cliffRatio) break;
+    }
+
+    selected.push(curr);
+  }
+
+  if (selected.length < minK) {
+    return candidates.slice(0, Math.min(candidates.length, minK));
+  }
+
+  return selected;
+}
+
 if (typeof window !== 'undefined') {
   window.TurboQuantEngine = TurboQuantEngine;
+  window.autoSelectCandidates = autoSelectCandidates;
 }
+

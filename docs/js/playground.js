@@ -1,4 +1,4 @@
-import { TurboQuantEngine } from './turboquant.js';
+import { TurboQuantEngine, autoSelectCandidates } from './turboquant.js';
 import { PRESETS, SAMPLE_QUERIES } from './catalog.js';
 import { highlightCode } from './highlighter.js';
 
@@ -7,6 +7,7 @@ class PlaygroundApp {
     this.activePresetId = 'mcp_dev';
     this.activeTools = { ...PRESETS.mcp_dev.tools };
     this.engine = new TurboQuantEngine();
+    this.selectionMode = 'auto'; // 'auto' or 'fixed'
     this.topK = 3;
     this.threshold = 0.85;
     this.selectedEngineType = 'turboquant';
@@ -17,6 +18,9 @@ class PlaygroundApp {
     // UI elements
     this.queryInput = document.getElementById('query-input');
     this.presetSelector = document.getElementById('preset-selector');
+    this.btnModeAuto = document.getElementById('btn-mode-auto');
+    this.btnModeFixed = document.getElementById('btn-mode-fixed');
+    this.topkSliderWrap = document.getElementById('topk-slider-wrap');
     this.topKSlider = document.getElementById('topk-slider');
     this.topKValue = document.getElementById('topk-value');
     this.thresholdSlider = document.getElementById('threshold-slider');
@@ -29,12 +33,14 @@ class PlaygroundApp {
     this.quickChipsContainer = document.getElementById('quick-chips');
     this.toolCountBadge = document.getElementById('tool-count-badge');
     this.codeSnippetEl = document.getElementById('code-snippet');
+    this.candidatesSubtext = document.getElementById('candidates-subtext');
     this.toolCatalogModal = document.getElementById('tool-catalog-modal');
     this.toolCatalogList = document.getElementById('tool-catalog-list');
     this.toolCatalogSearch = document.getElementById('tool-catalog-search');
 
     this.init();
   }
+
 
   init() {
     this.rebuildEngine();
@@ -108,11 +114,45 @@ class PlaygroundApp {
       });
     }
 
+    // Candidate mode buttons
+    if (this.btnModeAuto && this.btnModeFixed) {
+      this.btnModeAuto.addEventListener('click', () => {
+        this.selectionMode = 'auto';
+        this.btnModeAuto.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-all bg-white text-ink-900 shadow-sm';
+        this.btnModeFixed.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all text-ink-600 hover:text-ink-900';
+        if (this.topkSliderWrap) {
+          this.topkSliderWrap.classList.add('hidden');
+          this.topkSliderWrap.classList.remove('flex');
+        }
+        this.runPrune();
+      });
+
+      this.btnModeFixed.addEventListener('click', () => {
+        this.selectionMode = 'fixed';
+        this.btnModeFixed.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-all bg-white text-ink-900 shadow-sm';
+        this.btnModeAuto.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all text-ink-600 hover:text-ink-900';
+        if (this.topkSliderWrap) {
+          this.topkSliderWrap.classList.remove('hidden');
+          this.topkSliderWrap.classList.add('flex');
+        }
+        this.runPrune();
+      });
+    }
+
     // Top-K slider
     if (this.topKSlider) {
       this.topKSlider.addEventListener('input', (e) => {
         this.topK = parseInt(e.target.value, 10);
         if (this.topKValue) this.topKValue.textContent = `Top-${this.topK}`;
+        if (this.selectionMode !== 'fixed') {
+          this.selectionMode = 'fixed';
+          if (this.btnModeFixed) this.btnModeFixed.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-all bg-white text-ink-900 shadow-sm';
+          if (this.btnModeAuto) this.btnModeAuto.className = 'px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all text-ink-600 hover:text-ink-900';
+          if (this.topkSliderWrap) {
+            this.topkSliderWrap.classList.remove('hidden');
+            this.topkSliderWrap.classList.add('flex');
+          }
+        }
         this.runPrune();
       });
     }
@@ -238,11 +278,16 @@ class PlaygroundApp {
     const query = (this.queryInput?.value || '').trim() || 'read the package.json file to see dependencies';
     const tStart = performance.now();
 
-    const rawResults = this.engine.search(query, this.topK);
+    const poolSize = this.selectionMode === 'auto' ? Math.max(10, Object.keys(this.activeTools).length) : this.topK;
+    const rawResults = this.engine.search(query, poolSize);
     const latency = performance.now() - tStart;
 
+    const selectedRaw = this.selectionMode === 'auto'
+      ? autoSelectCandidates(rawResults)
+      : rawResults.slice(0, this.topK);
+
     // Enrich results with metadata
-    const candidates = rawResults.map(item => {
+    const candidates = selectedRaw.map(item => {
       const toolMeta = this.activeTools[item.name] || {};
       return {
         name: item.name,
@@ -255,7 +300,15 @@ class PlaygroundApp {
       };
     });
 
-    const top1 = candidates[0] || null;
+    const top1 = candidates[0] || (rawResults[0] ? {
+      name: rawResults[0].name,
+      probability: rawResults[0].probability,
+      score: rawResults[0].score,
+      domain: (this.activeTools[rawResults[0].name] || {}).domain || 'general',
+      description: (this.activeTools[rawResults[0].name] || {}).description || '',
+      criteria: (this.activeTools[rawResults[0].name] || {}).criteria || '',
+      tokens: (this.activeTools[rawResults[0].name] || {}).estimatedTokens || 150
+    } : null);
 
     // Compute token savings
     const totalTools = Object.keys(this.activeTools).length;
@@ -275,13 +328,16 @@ class PlaygroundApp {
 
     const candidatesCountEl = document.getElementById('candidates-count');
     if (candidatesCountEl) {
-      candidatesCountEl.textContent = `Top-${this.topK}`;
+      candidatesCountEl.textContent = this.selectionMode === 'auto' ? `Auto: ${candidates.length}` : `Top-${this.topK}`;
+    }
+    if (this.candidatesSubtext) {
+      this.candidatesSubtext.textContent = this.selectionMode === 'auto' ? 'Adaptive confidence drop-off' : 'Fixed candidate cutoff';
     }
 
     this.renderTop1Card(top1, query, latency);
     this.renderCandidatesList(candidates);
-    this.updateDispatchStatus(top1);
-    this.updateCodeSnippet(query, top1, latency);
+    this.updateDispatchStatus(top1, candidates.length, savedPercent);
+    this.updateCodeSnippet(query, top1, latency, candidates);
   }
 
   renderTop1Card(top1, query, latency) {
@@ -308,25 +364,38 @@ class PlaygroundApp {
         <div class="flex items-center gap-3">
           <div class="text-right">
             <div class="text-xs font-mono uppercase tracking-wider text-neutral-500">Calibrated Confidence</div>
-            <div class="text-2xl font-bold font-mono ${probPct >= 85 ? 'text-emerald-700' : 'text-amber-700'}">
+            <div class="text-2xl font-bold font-mono ${probPct >= 80 ? 'text-emerald-700' : 'text-neutral-800'}">
               ${probPct}%
             </div>
           </div>
-          <div class="w-16 h-16 rounded-2xl ${isDirectDispatch ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/90' : 'bg-amber-50 text-amber-700 border border-amber-200/90'} flex flex-col items-center justify-center font-mono text-xs font-semibold p-1 text-center">
-            <span>${isDirectDispatch ? '⚡ FAST' : '🤖 PASS'}</span>
-            <span class="text-[10px] font-normal opacity-80">${isDirectDispatch ? '<1ms' : 'LLM'}</span>
+          <div class="w-14 h-14 rounded-2xl ${probPct >= 80 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-amber-50 text-amber-700 border border-amber-200'} flex items-center justify-center font-mono font-bold text-lg">
+            ${probPct}%
           </div>
         </div>
       </div>
-      
-      <div class="pt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+
+      <div class="pt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
         <div>
-          <p class="text-xs font-mono uppercase tracking-wider text-neutral-500 mb-1">Tool Description</p>
-          <p class="text-neutral-800 leading-relaxed font-normal">${escapeHtml(top1.description)}</p>
+          <span class="font-mono text-neutral-600 font-semibold block mb-1">Description</span>
+          <p class="text-neutral-700 leading-relaxed">${escapeHtml(top1.description || 'No description provided')}</p>
         </div>
         <div>
-          <p class="text-xs font-mono uppercase tracking-wider text-neutral-500 mb-1">Matching Criteria</p>
-          <p class="text-neutral-600 leading-relaxed font-normal">${escapeHtml(top1.criteria || top1.description)}</p>
+          <span class="font-mono text-neutral-600 font-semibold block mb-1">Decision Criteria</span>
+          <p class="text-neutral-700 leading-relaxed font-mono text-[11px] bg-neutral-50 p-2 rounded-lg border border-neutral-200/60">
+            ${escapeHtml(top1.criteria || top1.description)}
+          </p>
+        </div>
+        <div>
+          <span class="font-mono text-neutral-600 font-semibold block mb-1">Routing Action</span>
+          <div class="p-2.5 rounded-xl ${isDirectDispatch ? 'bg-emerald-50 border border-emerald-200 text-emerald-950' : 'bg-neutral-50 border border-neutral-200 text-neutral-800'} flex items-center gap-2">
+            <span class="text-base">${isDirectDispatch ? '⚡' : '🤖'}</span>
+            <div>
+              <div class="font-semibold">${isDirectDispatch ? 'Direct Dispatch' : 'LLM Schema Prune'}</div>
+              <div class="text-[11px] text-neutral-600">
+                ${isDirectDispatch ? 'Bypasses LLM (0ms delay)' : 'Prunes to candidates'}
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -336,15 +405,24 @@ class PlaygroundApp {
     if (!this.resultsContainer) return;
     this.resultsContainer.innerHTML = '';
 
-    candidates.forEach((cand, idx) => {
-      const probPct = Math.round(cand.probability * 100);
-      const isTop1 = idx === 0;
+    if (candidates.length === 0) {
+      this.resultsContainer.innerHTML = `
+        <div class="p-6 text-center text-xs font-mono text-neutral-500 bg-neutral-50 rounded-xl border border-neutral-200">
+          No candidates cleared relevance threshold.
+        </div>
+      `;
+      return;
+    }
 
+    candidates.forEach((cand, idx) => {
       const row = document.createElement('div');
-      row.className = `p-4 rounded-xl border transition-all duration-200 ${
+      const isTop1 = idx === 0;
+      const probPct = Math.round(cand.probability * 100);
+
+      row.className = `p-3 rounded-xl border transition-all duration-200 ${
         isTop1
-          ? 'bg-white border-emerald-300 shadow-sm ring-1 ring-emerald-200/50'
-          : 'bg-white/70 border-neutral-200/80 hover:border-neutral-300 hover:bg-white'
+          ? 'bg-emerald-50/50 border-emerald-300/70 shadow-xs'
+          : 'bg-white border-neutral-200/80 hover:border-neutral-300 hover:bg-neutral-50/50'
       }`;
 
       row.innerHTML = `
@@ -371,7 +449,7 @@ class PlaygroundApp {
     });
   }
 
-  updateDispatchStatus(top1) {
+  updateDispatchStatus(top1, candCount = 1, savedPercent = '85') {
     if (!this.dispatchStatus || !top1) return;
 
     const prob = top1.probability;
@@ -390,19 +468,22 @@ class PlaygroundApp {
       `;
     } else {
       this.dispatchStatus.className = 'p-4 rounded-xl border border-amber-300/80 bg-amber-50/80 text-amber-950 flex items-start gap-3';
+      const modeText = this.selectionMode === 'auto'
+        ? `Auto-selected ${candCount} candidate schemas based on confidence drop-off.`
+        : `Pruned your MCP catalog to the top-${this.topK} candidate schemas.`;
       this.dispatchStatus.innerHTML = `
         <div class="w-7 h-7 rounded-lg bg-amber-200/70 text-amber-800 flex items-center justify-center shrink-0 mt-0.5 font-mono text-sm">🤖</div>
         <div class="text-sm">
           <p class="font-semibold text-amber-900">Prompt Schema Pruned for LLM (${Math.round(prob * 100)}% < ${Math.round(this.threshold * 100)}%)</p>
           <p class="text-xs text-amber-800/90 mt-0.5 leading-relaxed">
-            Confidence is below threshold. tool-prune prunes your MCP catalog to the top-${this.topK} candidate schemas before calling your LLM. Token overhead dropped by over 85%.
+            Confidence is below threshold. tool-prune ${modeText} Token overhead dropped by over ${savedPercent}%.
           </p>
         </div>
       `;
     }
   }
 
-  async updateCodeSnippet(query = '', top1 = null, latency = null) {
+  async updateCodeSnippet(query = '', top1 = null, latency = null, candidates = null) {
     if (!this.codeSnippetEl) return;
     const qStr = query || this.lastQuery || (this.queryInput?.value || '').trim() || 'read the package.json file to see dependencies';
     const activeTop1 = top1 || this.lastTop1 || this.engine.search(qStr, 1)[0] || { name: 'fs_read_file', probability: 0.88 };
@@ -417,9 +498,9 @@ class PlaygroundApp {
     const snippetTools = {};
     snippetTools[toolName] = this.activeTools[toolName]?.description || 'Execute ' + toolName;
 
-    // Add other top candidates
-    const searchResults = this.engine.search(qStr, Math.max(3, this.topK));
-    for (const item of searchResults) {
+    // Add candidate tools
+    const candList = candidates || this.engine.search(qStr, Math.max(3, this.topK));
+    for (const item of candList) {
       if (!snippetTools[item.name] && Object.keys(snippetTools).length < 4) {
         snippetTools[item.name] = this.activeTools[item.name]?.description || 'Execute ' + item.name;
       }
@@ -434,22 +515,28 @@ class PlaygroundApp {
 
     let code = '';
     if (this.activeCodeLang === 'js') {
+      const filterCall = this.selectionMode === 'auto'
+        ? `await router.filter(${JSON.stringify(qStr)});`
+        : `await router.filter(${JSON.stringify(qStr)}, { k: ${this.topK} });`;
+      const oneShotOpts = this.selectionMode === 'auto' ? '' : `, {\n  topK: ${this.topK}\n}`;
+
       code = `// One-shot tool selection with offline TurboQuant (${lat.toFixed(2)}ms)
 import prune from 'tool-prune';
 
 const tools = ${JSON.stringify(snippetTools, null, 2)};
 
 // 1. Direct prune or LLM candidate filter
-const match = await prune(${JSON.stringify(qStr)}, tools, {
-  topK: ${this.topK}
-});
+const match = await prune(${JSON.stringify(qStr)}, tools${oneShotOpts});
 
 console.log(match.tool);       // "${toolName}"
 console.log(match.confidence); // ${(activeTop1.probability || 0.88).toFixed(3)}
 console.log(match.latency);    // ${lat.toFixed(2)}ms
 
-// 2. Fast-path direct dispatch when confident:
+// 2. Reusable router for LLM prompt pruning (${this.selectionMode === 'auto' ? 'auto-selected candidates' : 'top-' + this.topK}):
 const router = prune(tools, { threshold: ${this.threshold} });
+const topTools = ${filterCall}
+
+// 3. Fast-path direct dispatch when confident:
 const result = await router.dispatch(${JSON.stringify(qStr)}, {
   ${toolName}: (query) => executeHandler(query),
   fallback: (query, candidates) => callLLM(query, candidates)
@@ -458,6 +545,9 @@ const result = await router.dispatch(${JSON.stringify(qStr)}, {
       const pyToolsEntries = Object.entries(snippetTools)
         .map(([k, v]) => `    ${JSON.stringify(k)}: ${JSON.stringify(v)}`)
         .join(',\n');
+      const pyFilterCall = this.selectionMode === 'auto'
+        ? `router.filter(${JSON.stringify(qStr)})`
+        : `router.filter(${JSON.stringify(qStr)}, k=${this.topK})`;
 
       code = `# Python API: zero dependencies offline TurboQuant
 from tool_prune import prune, ToolPrune
@@ -471,9 +561,9 @@ match = prune(${JSON.stringify(qStr)}, tools)
 print(match.tool)        # "${toolName}"
 print(match.confidence)  # ${(activeTop1.probability || 0.88).toFixed(3)}
 
-# 2. Reusable router for LLM prompt pruning
+# 2. Reusable router for LLM prompt pruning (${this.selectionMode === 'auto' ? 'auto-selected candidates' : 'top-' + this.topK})
 router = ToolPrune(tools, threshold=${this.threshold})
-candidates = router.filter(${JSON.stringify(qStr)}, k=${this.topK})
+candidates = ${pyFilterCall}
 
 # 3. Fast-path direct dispatch
 result = router.dispatch(${JSON.stringify(qStr)}, {

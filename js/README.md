@@ -35,7 +35,9 @@ console.log(match.engine); // 'turboquant'
 
 ```js
 const router = prune(tools);
-const topTools = await router.filter(userPrompt, { k: 5 });
+
+// Auto-selects candidate schemas dynamically (or pass { k: 5 }):
+const topTools = await router.filter(userPrompt);
 
 const response = await llm.chat({
   tools: topTools,

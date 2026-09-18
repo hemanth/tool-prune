@@ -37,7 +37,9 @@ print(match.engine) # 'turboquant'
 from tool_prune import ToolPrune
 
 router = ToolPrune(tools)
-top_tools = router.filter(user_prompt, k=5)
+
+# Auto-selects candidate schemas dynamically (or pass k=5):
+top_tools = router.filter(user_prompt)
 
 response = llm.chat(
     tools=top_tools,

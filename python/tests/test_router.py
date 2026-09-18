@@ -24,7 +24,9 @@ class TestToolPrune(unittest.TestCase):
     def test_instantiation(self):
         pruner = ToolPrune({"read": "Read file"})
         self.assertEqual(pruner.threshold, 0.85)
-        self.assertEqual(pruner.top_k, 3)
+        self.assertEqual(pruner.top_k, "auto")
+        configured = ToolPrune({"read": "Read file"}, top_k=3)
+        self.assertEqual(configured.top_k, 3)
 
     def test_default_turboquant_without_api_key(self):
         pruner = ToolPrune({
@@ -38,6 +40,7 @@ class TestToolPrune(unittest.TestCase):
         self.assertEqual(res.tool, "read_file")
         self.assertGreater(res.confidence, 0.0)
         self.assertEqual(len(res.top_k), 2)
+        self.assertGreaterEqual(len(res.auto_selected), 1)
 
     def test_missing_api_key_when_typesafe_requested(self):
         pruner = ToolPrune({"read": "Read file"}, api_key="")
@@ -82,5 +85,62 @@ class TestToolPrune(unittest.TestCase):
         self.assertEqual(res.engine, "turboquant")
         self.assertEqual(res.tool, "get_weather")
 
+    def test_auto_select_candidates_dominant(self):
+        from tool_prune.router import CandidateTool, auto_select_candidates
+        candidates = [
+            CandidateTool(name="git_commit", score=0.65, probability=0.95),
+            CandidateTool(name="git_status", score=0.20, probability=0.70),
+            CandidateTool(name="fs_read", score=0.12, probability=0.60)
+        ]
+        selected = auto_select_candidates(candidates)
+        self.assertEqual(len(selected), 1)
+        self.assertEqual(selected[0].name, "git_commit")
+
+    def test_auto_select_candidates_cluster(self):
+        from tool_prune.router import CandidateTool, auto_select_candidates
+        candidates = [
+            CandidateTool(name="git_diff", score=0.42, probability=0.85),
+            CandidateTool(name="git_status", score=0.38, probability=0.82),
+            CandidateTool(name="fs_read", score=0.10, probability=0.40)
+        ]
+        selected = auto_select_candidates(candidates)
+        self.assertEqual(len(selected), 2)
+        self.assertEqual(selected[0].name, "git_diff")
+        self.assertEqual(selected[1].name, "git_status")
+
+    def test_filter_auto_mode(self):
+        tools = {
+            "git_commit": "Record changes to the repository with a commit message",
+            "git_status": "Show working tree status and untracked files",
+            "calculator": "Evaluate mathematical expressions",
+            "weather": "Get current weather forecast"
+        }
+        pruner = ToolPrune(tools, engine="turboquant")
+        auto_pruned = pruner.filter("commit changes with fix")
+        self.assertIsInstance(auto_pruned, list)
+        self.assertGreaterEqual(len(auto_pruned), 1)
+        self.assertLessEqual(len(auto_pruned), 2)
+        self.assertEqual(auto_pruned[0]["name"], "git_commit")
+
+        explicit_auto = pruner.filter("commit changes with fix", k="auto")
+        self.assertEqual(auto_pruned, explicit_auto)
+
+        auto_method = pruner.auto("commit changes with fix")
+        self.assertEqual(auto_pruned, auto_method)
+
+    def test_prune_auto_one_shot(self):
+        tools = {
+            "git_commit": "Record changes to the repository with a commit message",
+            "weather": "Get current weather forecast"
+        }
+        from tool_prune import prune_auto
+        selected = prune_auto("commit changes", tools, engine="turboquant")
+        self.assertIsInstance(selected, list)
+        self.assertEqual(selected[0]["name"], "git_commit")
+
+        selected_via_attr = prune.auto("commit changes", tools, engine="turboquant")
+        self.assertEqual(selected, selected_via_attr)
+
 if __name__ == "__main__":
     unittest.main()
+

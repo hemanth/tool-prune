@@ -41,7 +41,7 @@ export class ToolPruner {
     this.endpoint = options.endpoint || 'https://api.typesafe.ai/v1/systemone';
     this.model = options.model || 'jev-latest';
     this.threshold = options.threshold ?? 0.85;
-    this.defaultTopK = options.topK ?? 3;
+    this.defaultTopK = options.topK ?? 'auto';
     this.requestedEngine = options.engine;
     this._tqEngine = null;
     this._wasmEngine = null;
@@ -111,14 +111,19 @@ export class ToolPruner {
     const toolAnswer = data.answers?.tool;
     const probs = toolAnswer?.probabilities || {};
     const sorted = Object.entries(probs).sort((a, b) => b[1] - a[1]);
-    const topKCount = options.topK || this.defaultTopK;
-    const topK = sorted.slice(0, topKCount).map(([name, p]) => ({
+    const allCandidates = sorted.map(([name, p]) => ({
       name,
       probability: p,
       tool: this.registry.get(name)
     }));
 
-    const selectedName = toolAnswer?.choice;
+    const autoSelected = autoSelectCandidates(allCandidates, options);
+    const autoTools = autoSelected.map(c => c.tool || c.name);
+
+    const k = typeof options.topK === 'number' ? options.topK : (typeof this.defaultTopK === 'number' ? this.defaultTopK : null);
+    const topK = typeof k === 'number' ? allCandidates.slice(0, k) : allCandidates.slice(0, Math.max(3, autoSelected.length));
+
+    const selectedName = toolAnswer?.choice || topK[0]?.name || '';
     const probability = probs[selectedName] ?? 0;
     const confidence = toolAnswer?.confidence ?? probability;
     const requiresGeneration = data.answers?.requires_generation?.probability ?? 0;
@@ -128,6 +133,8 @@ export class ToolPruner {
       confidence,
       probability,
       topK,
+      autoSelected,
+      autoTools,
       requiresGeneration,
       latency,
       engine: 'typesafe',
@@ -165,20 +172,21 @@ export class ToolPruner {
       }
     }
 
-    const k = options.topK || this.defaultTopK;
-    let topK = [];
+    const k = typeof options.topK === 'number' ? options.topK : (typeof this.defaultTopK === 'number' ? this.defaultTopK : null);
+    const poolSize = Math.max(k || 3, 10, this.registry.size);
+    let allCandidates = [];
 
     if (this._wasmEngine) {
-      const results = await this._wasmEngine.search(qStr, { topK: k });
-      topK = results.map(r => ({
+      const results = await this._wasmEngine.search(qStr, { topK: poolSize });
+      allCandidates = results.map(r => ({
         name: r.data?.name || '',
         probability: r.score || 0,
         score: r.score || 0,
         tool: this.registry.get(r.data?.name)
       }));
     } else {
-      const rawResults = this._tqEngine.search(qStr, k);
-      topK = rawResults.map(r => ({
+      const rawResults = this._tqEngine.search(qStr, poolSize);
+      allCandidates = rawResults.map(r => ({
         name: r.name,
         probability: r.probability,
         score: r.score,
@@ -187,13 +195,18 @@ export class ToolPruner {
     }
 
     const latency = performance.now() - start;
-    const top1 = topK[0];
+    const top1 = allCandidates[0];
+    const autoSelected = autoSelectCandidates(allCandidates, options);
+    const autoTools = autoSelected.map(c => c.tool || c.name);
+    const topK = typeof k === 'number' ? allCandidates.slice(0, k) : allCandidates.slice(0, Math.max(3, autoSelected.length));
 
     return {
       tool: top1?.name || '',
       confidence: top1?.probability || 0,
       probability: top1?.probability || 0,
       topK,
+      autoSelected,
+      autoTools,
       requiresGeneration: 0,
       latency,
       engine: 'turboquant'
@@ -201,12 +214,26 @@ export class ToolPruner {
   }
 
   /**
-   * Filter tool collection down to top-K candidates to prune LLM prompt bloat.
+   * Filter tool collection down to relevant candidates to prune LLM prompt bloat.
+   * If k or topK is a number, returns that fixed number of candidates.
+   * Otherwise (default or k='auto'), automatically selects the candidates based on score drop-off.
    */
   async filter(query, options = {}) {
+    const k = options.k ?? options.topK ?? this.defaultTopK;
+    if (typeof k === 'number' && k > 0) {
+      const res = await this.select(query, { ...options, topK: k });
+      return res.topK.slice(0, k).map(item => item.tool || item.name);
+    }
     const res = await this.select(query, options);
-    const k = options.k || options.topK || this.defaultTopK;
-    return res.topK.slice(0, k).map(item => item.tool || item.name);
+    return res.autoTools;
+  }
+
+  /**
+   * Automatically select the optimal candidate tools based on score distribution.
+   */
+  async auto(query, options = {}) {
+    const res = await this.select(query, options);
+    return res.autoTools;
   }
 
   /**
@@ -229,6 +256,61 @@ export class ToolPruner {
 }
 
 /**
+ * Automatically select the most relevant tool candidates based on score distribution,
+ * cliff / elbow drop-off, and relevance floors.
+ */
+export function autoSelectCandidates(candidates, options = {}) {
+  if (!candidates || candidates.length === 0) return [];
+
+  const maxK = options.maxK ?? 5;
+  const minK = options.minK ?? (options.allowEmpty ? 0 : 1);
+  const minScore = options.minScore ?? 0.12;
+  const minProb = options.minProbability ?? options.minProb ?? 0.20;
+  const relativeThreshold = options.relativeThreshold ?? 0.70;
+  const cliffRatio = options.cliffRatio ?? 0.75;
+  const dominantMargin = options.dominantMargin ?? 0.14;
+
+  const top1 = candidates[0];
+  const hasScore = typeof top1.score === 'number';
+  const topVal = hasScore ? top1.score : top1.probability;
+  const floorVal = hasScore ? minScore : minProb;
+
+  if (topVal < floorVal) {
+    return minK > 0 ? candidates.slice(0, minK) : [];
+  }
+
+  const selected = [top1];
+
+  for (let i = 1; i < Math.min(candidates.length, maxK); i++) {
+    const curr = candidates[i];
+    const prev = candidates[i - 1];
+
+    if (hasScore) {
+      if (curr.score < minScore) break;
+      // Dominant lead: top1 is strong and clearly ahead
+      if (top1.score >= 0.35 && (top1.score - curr.score) > dominantMargin) break;
+      // Relative to top1
+      if ((curr.score / Math.max(1e-6, top1.score)) < relativeThreshold) break;
+      // Cliff drop from previous
+      if (prev.score > 0 && (curr.score / prev.score) < cliffRatio) break;
+    } else {
+      if (curr.probability < minProb) break;
+      if (top1.probability >= 0.70 && (top1.probability - curr.probability) > 0.20) break;
+      if ((curr.probability / Math.max(1e-6, top1.probability)) < relativeThreshold) break;
+      if (prev.probability > 0 && (curr.probability / prev.probability) < cliffRatio) break;
+    }
+
+    selected.push(curr);
+  }
+
+  if (selected.length < minK) {
+    return candidates.slice(0, Math.min(candidates.length, minK));
+  }
+
+  return selected;
+}
+
+/**
  * Main function following Hemanth module style:
  * - One-shot: await toolPrune(query, tools, options)
  * - Configured: const pruner = toolPrune(tools, options)
@@ -241,5 +323,12 @@ export default function toolPrune(arg1, arg2, options) {
   return new ToolPruner(arg1, arg2);
 }
 
+toolPrune.auto = function(query, tools, options) {
+  const pruner = new ToolPruner(tools, options);
+  return pruner.auto(query, options);
+};
+
 toolPrune.ToolPruner = ToolPruner;
 toolPrune.normalizeTools = normalizeTools;
+toolPrune.autoSelectCandidates = autoSelectCandidates;
+

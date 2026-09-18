@@ -392,13 +392,23 @@
         </div>
       </div>
 
-      <!-- Controls Strip: Top-K and Threshold -->
+      <!-- Controls Strip: Candidate Mode and Threshold -->
       <div class="px-6 py-3.5 bg-ink-50/60 border-b border-ink-200/70 flex flex-wrap items-center justify-between gap-4 text-xs">
         <div class="flex flex-wrap items-center gap-6">
           <div class="flex items-center gap-2.5">
-            <span class="font-mono text-ink-700 font-medium">Top-K Candidates:</span>
-            <input id="topk-slider" type="range" min="1" max="8" value="3" class="w-24 accent-peach-700 cursor-pointer" />
-            <span id="topk-value" class="font-mono font-bold text-ink-900 bg-white px-2 py-0.5 rounded border border-ink-200">Top-3</span>
+            <span class="font-mono text-ink-700 font-medium">Candidate Mode:</span>
+            <div class="inline-flex p-0.5 rounded-lg bg-ink-200/60 border border-ink-200">
+              <button id="btn-mode-auto" type="button" class="px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-all bg-white text-ink-900 shadow-sm">
+                ⚡ Auto
+              </button>
+              <button id="btn-mode-fixed" type="button" class="px-2.5 py-1 rounded-md text-xs font-mono font-medium transition-all text-ink-600 hover:text-ink-900">
+                Fixed K
+              </button>
+            </div>
+            <div id="topk-slider-wrap" class="hidden items-center gap-2">
+              <input id="topk-slider" type="range" min="1" max="8" value="3" class="w-20 accent-peach-700 cursor-pointer" />
+              <span id="topk-value" class="font-mono font-bold text-ink-900 bg-white px-2 py-0.5 rounded border border-ink-200">Top-3</span>
+            </div>
           </div>
 
           <div class="flex items-center gap-2.5">
@@ -436,9 +446,9 @@
           <div>
             <div class="flex items-center justify-between mb-3">
               <h3 class="font-mono text-xs font-bold uppercase tracking-wider text-ink-700">
-                Top Ranked Candidates (<span id="candidates-count">Top-3</span>)
+                Pruned Candidates (<span id="candidates-count">Auto</span>)
               </h3>
-              <span class="text-xs text-ink-500 font-mono">Calibrated vector similarity</span>
+              <span id="candidates-subtext" class="text-xs text-ink-500 font-mono">Adaptive score drop-off</span>
             </div>
             
             <div id="candidates-list" class="flex flex-col gap-2.5">

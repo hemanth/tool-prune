@@ -15,7 +15,17 @@ export interface ToolPruneOptions {
   model?: string;
   engine?: 'typesafe' | 'turboquant';
   threshold?: number;
-  topK?: number;
+  topK?: number | 'auto';
+  k?: number | 'auto';
+  auto?: boolean;
+  minK?: number;
+  maxK?: number;
+  minScore?: number;
+  minProbability?: number;
+  relativeThreshold?: number;
+  cliffRatio?: number;
+  dominantMargin?: number;
+  allowEmpty?: boolean;
 }
 
 export interface CandidateTool {
@@ -30,6 +40,8 @@ export interface SelectionResult {
   confidence: number;
   probability: number;
   topK: CandidateTool[];
+  autoSelected: CandidateTool[];
+  autoTools: any[];
   requiresGeneration: number;
   latency: number;
   engine?: string;
@@ -40,10 +52,13 @@ export interface SelectionResult {
   raw?: any;
 }
 
+export function autoSelectCandidates(candidates: CandidateTool[], options?: Partial<ToolPruneOptions>): CandidateTool[];
+
 export class ToolPruner {
   constructor(tools: ToolInput, options?: ToolPruneOptions);
   select(query: string | Record<string, any>, options?: Partial<ToolPruneOptions>): Promise<SelectionResult>;
-  filter(query: string | Record<string, any>, options?: { k?: number } & Partial<ToolPruneOptions>): Promise<any[]>;
+  filter(query: string | Record<string, any>, options?: Partial<ToolPruneOptions>): Promise<any[]>;
+  auto(query: string | Record<string, any>, options?: Partial<ToolPruneOptions>): Promise<any[]>;
   dispatch<T = any>(
     query: string | Record<string, any>,
     handlers: Record<string, (query: any, selection: SelectionResult) => Promise<T> | T>,
@@ -53,4 +68,5 @@ export class ToolPruner {
 
 export default function toolPrune(query: string, tools: ToolInput, options?: ToolPruneOptions): Promise<SelectionResult>;
 export default function toolPrune(tools: ToolInput, options?: ToolPruneOptions): ToolPruner;
+
 

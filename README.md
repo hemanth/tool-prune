@@ -34,11 +34,16 @@ console.log(match.engine); // 'turboquant'
 
 ## Schema pruning for LLMs
 
-Instead of dumping 100 MCP tool schemas into every prompt, prune them to the top candidates before calling your LLM:
+Instead of dumping 100 MCP tool schemas into every prompt, prune them to the relevant candidates before calling your LLM:
 
 ```js
 const router = prune(tools);
-const topTools = await router.filter(userPrompt, { k: 5 });
+
+// Auto-selects candidates dynamically based on confidence drop-off:
+const topTools = await router.filter(userPrompt);
+
+// Or pass fixed k:
+// const topTools = await router.filter(userPrompt, { k: 5 });
 
 const response = await llm.chat({
   tools: topTools,
@@ -46,7 +51,8 @@ const response = await llm.chat({
 });
 ```
 
-Cuts prompt tokens by up to 92% and eliminates LLM context confusion.
+`filter()` automatically detects the optimal tool set based on score distribution, or accepts `{ k: 5 }` for fixed top-K. Cuts prompt tokens by up to 92% and eliminates context confusion.
+
 
 ## Fast-path direct dispatch
 
@@ -86,9 +92,9 @@ from tool_prune import prune, ToolPrune
 match = prune("what tables exist in the db?", tools)
 print(match.tool, match.engine)
 
-# Reusable router for LLM prompt pruning
+# Reusable router for LLM prompt pruning (auto-selects candidates)
 router = ToolPrune(tools)
-candidates = router.filter(user_prompt, k=5)
+candidates = router.filter(user_prompt)  # or router.filter(user_prompt, k=5)
 ```
 
 ## Berkeley Function Calling Leaderboard (BFCL v3)
