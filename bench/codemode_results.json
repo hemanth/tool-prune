@@ -1,0 +1,11 @@
+{
+  "method": "codemode",
+  "model": "claude-haiku-4-5-20251001",
+  "queriesCount": 79,
+  "accuracy": 64.55696202531645,
+  "searchBlindnessRate": 3.79746835443038,
+  "hallucinationRate": 3.79746835443038,
+  "latencyMs": 2209,
+  "tokensPerTurn": 1735,
+  "avgTurns": 1.9
+}

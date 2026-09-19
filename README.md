@@ -109,9 +109,23 @@ Evaluated on Gorilla BFCL v3 multiple-tool benchmark:
 | **TurboQuant** | Pure JS / Python (built-in) | 86.7% | 77.5% | 0.14 ms | Offline |
 | *BM25 (Baseline)* | Lexical search | 88.3% | 95.0% | 0.025 ms | Offline |
 
-Run evaluation:
+## End-to-End Agent Architecture Benchmark (60 Tools)
+
+Evaluated with Claude Haiku 4.5 across 60 tool schemas and 79 queries:
+
+| Paradigm | Accuracy | Latency (P50) | Tokens / Turn | Roundtrips | Notes |
+|---|---|---|---|---|---|
+| **Tool-Prune Direct** | **97.5%** | **149 ms** | **385 tokens** | 0 LLM turns | LLM bypassed via calibrated fast-path (91% of queries) |
+| **Tool-Prune + LLM** | **97.5%** | **195 ms** | **397 tokens** | 1 turn | Dynamic Top-K candidate schema pruning (-72% tokens) |
+| **Full-Context LLM** | 97.5% | 555 ms | 1,409 tokens | 1 turn | All 60 tool schemas dumped into prompt context |
+| **Tool-Search (BM25 + LLM)** | 87.3% | 979 ms | 436 tokens | 2 turns | Lexical retrieval bottleneck on ambiguous queries |
+| **Code Mode (`search` + `eval`)** | 64.6% | 2,209 ms | 1,735 tokens | 1.9 turns | Multi-turn discovery drops target before sandbox execution |
+
+Run evaluations:
 
 ```bash
+node bench/run.mjs --size 60
+node bench/run_codemode_eval.mjs
 node bench/run_bfcl_eval.mjs
 uv run --with turbovec --with numpy python3 bench/run_turbovec_bench.py
 ```
