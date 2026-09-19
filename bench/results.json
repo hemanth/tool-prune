@@ -2,23 +2,26 @@
   "catalogSize": 60,
   "queriesCount": 79,
   "fullContext": {
-    "accuracy": 86.07594936708861,
-    "latencyMs": 2875,
-    "tokensPerTurn": 8740
+    "accuracy": 97.46835443037975,
+    "latencyMs": 555,
+    "tokensPerTurn": 1409
   },
   "toolSearch": {
     "accuracy": 87.34177215189874,
-    "latencyMs": 1030,
-    "tokensPerTurn": 1360
+    "latencyMs": 979,
+    "tokensPerTurn": 436,
+    "recall": 87.34177215189874
   },
   "toolPruneTop3": {
-    "accuracy": 100,
-    "latencyMs": 735,
-    "tokensPerTurn": 1145
+    "accuracy": 97.46835443037975,
+    "latencyMs": 195,
+    "tokensPerTurn": 397,
+    "recall": 100
   },
   "toolPruneDirect": {
     "accuracy": 97.46835443037975,
-    "latencyMs": 155,
-    "tokensPerTurn": 385
+    "latencyMs": 149,
+    "tokensPerTurn": 385,
+    "bypassedRate": 91.13924050632912
   }
 }

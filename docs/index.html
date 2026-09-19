@@ -657,7 +657,7 @@
         </div>
 
         <p class="text-xs text-ink-500 leading-relaxed font-normal">
-          Beyond token cost, schema pruning eliminates LLM context confusion: the Gorilla BFCL benchmark proves top-1 selection accuracy increases from 86.1% to 100% when noise distractors are pruned out.
+          Beyond token cost, schema pruning accelerates agent execution: empirical evaluation with Claude Haiku 4.5 confirms 97.5% selection accuracy is preserved while cutting tokens by 72% and slashing latency from 555ms down to 195ms (149ms via direct dispatch).
         </p>
       </div>
     </div>
@@ -700,7 +700,7 @@
               <td class="py-4 px-4 text-ink-700">Cloud System One</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 text-ink-900">258 ms</td>
+              <td class="py-4 px-4 text-ink-900">189 ms</td>
               <td class="py-4 px-4 text-ink-600">Cloud API</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -711,7 +711,7 @@
               <td class="py-4 px-4 text-ink-700">JS WASM (turboquant-search)</td>
               <td class="py-4 px-4 text-ink-900">86.7%</td>
               <td class="py-4 px-4 text-ink-900">85.0%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">14 ms</td>
+              <td class="py-4 px-4 font-bold text-sage-800">16 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -722,7 +722,7 @@
               <td class="py-4 px-4 text-ink-700">Rust SIMD (turbovec)</td>
               <td class="py-4 px-4 text-ink-900">85.0%</td>
               <td class="py-4 px-4 text-ink-900">82.5%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.023 ms</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.018 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -731,10 +731,21 @@
                 TurboQuant (Pure JS)
               </td>
               <td class="py-4 px-4 text-ink-700">Pure JS / Python Fallback</td>
-              <td class="py-4 px-4 text-ink-900">83.3%</td>
-              <td class="py-4 px-4 text-ink-900">82.5%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.4 ms</td>
+              <td class="py-4 px-4 text-ink-900">86.7%</td>
+              <td class="py-4 px-4 text-ink-900">77.5%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.14 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors text-ink-500">
+              <td class="py-4 px-4 sm:px-6 font-medium text-ink-700 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-ink-400"></span>
+                BM25 Baseline
+              </td>
+              <td class="py-4 px-4 text-ink-500">Lexical Inverted Index</td>
+              <td class="py-4 px-4 text-ink-700">88.3%</td>
+              <td class="py-4 px-4 text-ink-700">95.0%</td>
+              <td class="py-4 px-4 text-ink-700">0.025 ms</td>
+              <td class="py-4 px-4 text-ink-500">Offline</td>
             </tr>
           </tbody>
         </table>

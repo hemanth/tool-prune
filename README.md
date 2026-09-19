@@ -103,16 +103,17 @@ Evaluated on Gorilla BFCL v3 multiple-tool benchmark:
 
 | Engine | Backend | Distractor Top-1 | 100-Tool Top-5 Prune | Latency | Network |
 |---|---|---|---|---|---|
-| **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 258 ms | Cloud API |
-| **TurboQuant** | JS WASM (`turboquant-search`) | 86.7% | 85.0% | 14 ms | Offline |
-| **TurboQuant** | Python Rust (`turbovec`) | 85.0% | 82.5% | 0.023 ms | Offline |
-| **TurboQuant** | Pure JS / Python (built-in) | 83.3% | 82.5% | 0.4 ms | Offline |
+| **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 189 ms | Cloud API |
+| **TurboQuant** | JS WASM (`turboquant-search`) | 86.7% | 85.0% | 16 ms | Offline |
+| **TurboQuant** | Python Rust (`turbovec`) | 85.0% | 82.5% | 0.018 ms | Offline |
+| **TurboQuant** | Pure JS / Python (built-in) | 86.7% | 77.5% | 0.14 ms | Offline |
+| *BM25 (Baseline)* | Lexical search | 88.3% | 95.0% | 0.025 ms | Offline |
 
 Run evaluation:
 
 ```bash
 node bench/run_bfcl_eval.mjs
-python3 bench/run_turbovec_bench.py
+uv run --with turbovec --with numpy python3 bench/run_turbovec_bench.py
 ```
 
 ## License

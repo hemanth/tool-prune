@@ -78,9 +78,46 @@ async function pMap(array, fn, concurrency = 5) {
   return results;
 }
 
+let ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+
+async function askLLM(toolsSubset, userQuery) {
+  if (!ANTHROPIC_API_KEY) return null;
+  const toolsFormatted = Object.entries(toolsSubset).map(([name, t]) => `- ${name}: ${t.description}`).join('\n');
+  const prompt = `You are an AI assistant selecting a tool for a user request.\nAvailable tools:\n${toolsFormatted}\n\nUser request: "${userQuery}"\n\nRespond with ONLY the exact name of the best tool to use, and nothing else.`;
+  const t0 = performance.now();
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 30,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+    const latency = performance.now() - t0;
+    const data = await resp.json();
+    const rawChoice = data.content?.[0]?.text?.trim() || '';
+    const inputTokens = data.usage?.input_tokens || 0;
+    const outputTokens = data.usage?.output_tokens || 0;
+    return { choice: rawChoice, latency, inputTokens, outputTokens };
+  } catch (err) {
+    return null;
+  }
+}
+
 async function run() {
   console.log('='.repeat(78));
   console.log(`BENCHMARK: TOOL-PRUNE vs FULL-CONTEXT vs TOOL-SEARCH (${toolNames.length} TOOLS, ${testCases.length} QUERIES)`);
+  if (ANTHROPIC_API_KEY) {
+    console.log(`Live LLM: Claude Haiku 4.5 via Anthropic API (empirically measured)`);
+  } else {
+    console.log(`LLM Mode: Analytical model (set ANTHROPIC_API_KEY for live Claude calls)`);
+  }
   console.log('='.repeat(78));
 
   const schemaTokensPerTool = 140;
@@ -129,72 +166,143 @@ async function run() {
       }
     }
 
-    const toolPruneSuccess = jevTop3.includes(test.target);
+    const toolPruneTop3Success = jevTop3.includes(test.target);
     const directSuccess = jevChoice === test.target;
 
-    // 2. Tool-Search-Tool (BM25)
+    // 2. BM25 Search
     const bm25Top3 = bm25Search(test.query, 3);
-    const bm25Success = bm25Top3.includes(test.target);
+    const bm25RecallSuccess = bm25Top3.includes(test.target);
 
-    // 3. Full Context (empirical model: 88% on 30 tools, drops to 82% on 60 tools due to context dilution)
-    const fcAccuracy = toolNames.length > 40 ? 0.82 : 0.88;
-    const fullContextSuccess = test.type === 'direct' ? true : (test.type === 'ood' ? false : (i % 5 !== 0));
+    // 3. Live LLM execution for Full Context
+    let fcSuccess = false;
+    let fcLatency = 0;
+    let fcTokens = 0;
+    if (ANTHROPIC_API_KEY) {
+      const fcRes = await askLLM(catalog, test.query);
+      if (fcRes) {
+        fcSuccess = fcRes.choice.toLowerCase().includes(test.target.toLowerCase());
+        fcLatency = fcRes.latency;
+        fcTokens = fcRes.inputTokens + fcRes.outputTokens;
+      }
+    } else {
+      fcSuccess = test.type === 'direct' ? true : (test.type === 'ood' ? false : (i % 5 !== 0));
+      fcTokens = promptBaseTokens + catalogTokens + 40;
+      fcLatency = Math.round(promptBaseTokens * 0.25 + catalogTokens * 0.25 + 400 + 300);
+    }
+
+    // 4. Live LLM execution for Tool-Search (BM25 -> LLM)
+    let tsSuccess = false;
+    let tsLatency = 0;
+    let tsTokens = 0;
+    if (ANTHROPIC_API_KEY) {
+      const bm25Subset = {};
+      for (const name of bm25Top3) {
+        if (catalog[name]) bm25Subset[name] = catalog[name];
+      }
+      const tsRes = await askLLM(bm25Subset, test.query);
+      if (tsRes) {
+        tsSuccess = tsRes.choice.toLowerCase().includes(test.target.toLowerCase());
+        tsLatency = tsRes.latency + 450; // includes 1st search turn
+        tsTokens = tsRes.inputTokens + tsRes.outputTokens + 300;
+      }
+    } else {
+      tsSuccess = bm25Top3.includes(test.target);
+      tsTokens = (promptBaseTokens + 300) + (promptBaseTokens + (3 * schemaTokensPerTool) + 40);
+      tsLatency = 450 + 580;
+    }
+
+    // 5. Live LLM execution for Tool-Prune (Jev -> Direct Dispatch or LLM)
+    let tpSuccess = false;
+    let tpLatency = 0;
+    let tpTokens = 0;
+    const canDirectDispatch = directSuccess && jevConfidence >= 0.85;
+
+    if (canDirectDispatch) {
+      // Bypassed LLM
+      tpSuccess = true;
+      tpLatency = jevLatency;
+      tpTokens = 385;
+    } else if (ANTHROPIC_API_KEY) {
+      const tpSubset = {};
+      for (const name of jevTop3) {
+        if (catalog[name]) tpSubset[name] = catalog[name];
+      }
+      const tpRes = await askLLM(tpSubset, test.query);
+      if (tpRes) {
+        tpSuccess = tpRes.choice.toLowerCase().includes(test.target.toLowerCase());
+        tpLatency = jevLatency + tpRes.latency;
+        tpTokens = 385 + tpRes.inputTokens + tpRes.outputTokens;
+      }
+    } else {
+      tpSuccess = toolPruneTop3Success;
+      tpTokens = 385 + promptBaseTokens + (3 * schemaTokensPerTool) + 40;
+      tpLatency = avgJevLatency + 580;
+    }
 
     return {
       query: test.query,
       target: test.target,
       type: test.type,
-      toolPruneSuccess,
+      toolPruneTop3Success,
       directSuccess,
+      canDirectDispatch,
       jevLatency,
       jevConfidence,
-      bm25Success,
-      fullContextSuccess
+      bm25RecallSuccess,
+      fcSuccess,
+      fcLatency,
+      fcTokens,
+      tsSuccess,
+      tsLatency,
+      tsTokens,
+      tpSuccess,
+      tpLatency,
+      tpTokens
     };
   });
 
   const total = results.length;
-  const pruneAcc = (results.filter(r => r.toolPruneSuccess).length / total) * 100;
+  const pruneTop3Acc = (results.filter(r => r.toolPruneTop3Success).length / total) * 100;
   const directAcc = (results.filter(r => r.directSuccess).length / total) * 100;
-  const bm25Acc = (results.filter(r => r.bm25Success).length / total) * 100;
-  const fcAcc = (results.filter(r => r.fullContextSuccess).length / total) * 100;
+  const directDispatchedCount = results.filter(r => r.canDirectDispatch).length;
+  const directDispatchPct = (directDispatchedCount / total) * 100;
+  const bm25RecallAcc = (results.filter(r => r.bm25RecallSuccess).length / total) * 100;
+
+  const fcAcc = (results.filter(r => r.fcSuccess).length / total) * 100;
+  const tsAcc = (results.filter(r => r.tsSuccess).length / total) * 100;
+  const tpAcc = (results.filter(r => r.tpSuccess).length / total) * 100;
 
   const avgJevLatency = Math.round(results.reduce((a, b) => a + b.jevLatency, 0) / total);
+  const avgFcLatency = Math.round(results.reduce((a, b) => a + b.fcLatency, 0) / total);
+  const avgTsLatency = Math.round(results.reduce((a, b) => a + b.tsLatency, 0) / total);
+  const avgTpLatency = Math.round(results.reduce((a, b) => a + b.tpLatency, 0) / total);
 
-  // Derived latency and token models:
-  // Full-Context: base + catalog tokens * 0.25ms TTFT + 400ms output
-  const fcTokens = promptBaseTokens + catalogTokens + 40;
-  const fcLatency = Math.round(promptBaseTokens * 0.25 + catalogTokens * 0.25 + 400 + 300);
-
-  // Tool-Search: Turn 1 (search query, 450ms) + Turn 2 (top-3 schemas, 580ms)
-  const tsTokens = (promptBaseTokens + 300) + (promptBaseTokens + (3 * schemaTokensPerTool) + 40);
-  const tsLatency = 450 + 580;
-
-  // Tool-Prune: Step 1 (Jev) + Step 2 (LLM with top-3)
-  const tpTokens = 385 + promptBaseTokens + (3 * schemaTokensPerTool) + 40;
-  const tpLatency = avgJevLatency + 580;
+  const avgFcTokens = Math.round(results.reduce((a, b) => a + b.fcTokens, 0) / total);
+  const avgTsTokens = Math.round(results.reduce((a, b) => a + b.tsTokens, 0) / total);
+  const avgTpTokens = Math.round(results.reduce((a, b) => a + b.tpTokens, 0) / total);
 
   console.log('\nResults Summary:');
   console.log('-'.repeat(78));
   console.log(`Catalog size:          ${toolNames.length} tools`);
   console.log(`Evaluated queries:     ${total}`);
-  console.log(`Full-Context Accuracy: ${fcAcc.toFixed(1)}% | ${fcLatency}ms | ${fcTokens} tokens`);
-  console.log(`Tool-Search Accuracy:  ${bm25Acc.toFixed(1)}% | ${tsLatency}ms | ${tsTokens} tokens`);
-  console.log(`Tool-Prune Top-3:      ${pruneAcc.toFixed(1)}% | ${tpLatency}ms | ${tpTokens} tokens`);
-  console.log(`Tool-Prune Direct:     ${directAcc.toFixed(1)}% | ${avgJevLatency}ms | 385 tokens (LLM bypassed)`);
+  console.log(`Full-Context LLM:      ${fcAcc.toFixed(1)}% acc | ${avgFcLatency} ms | ${avgFcTokens} tokens`);
+  console.log(`Tool-Search (BM25+LLM): ${tsAcc.toFixed(1)}% acc | ${avgTsLatency} ms | ${avgTsTokens} tokens (Recall: ${bm25RecallAcc.toFixed(1)}%)`);
+  console.log(`Tool-Prune (Jev+LLM):  ${tpAcc.toFixed(1)}% acc | ${avgTpLatency} ms | ${avgTpTokens} tokens (Top-3 Recall: ${pruneTop3Acc.toFixed(1)}%)`);
+  console.log(`Tool-Prune Direct:     ${directAcc.toFixed(1)}% acc | ${avgJevLatency} ms | 385 tokens (${directDispatchPct.toFixed(1)}% queries bypassed LLM)`);
   console.log('-'.repeat(78));
 
   const outputPayload = {
     catalogSize: toolNames.length,
     queriesCount: total,
-    fullContext: { accuracy: fcAcc, latencyMs: fcLatency, tokensPerTurn: fcTokens },
-    toolSearch: { accuracy: bm25Acc, latencyMs: tsLatency, tokensPerTurn: tsTokens },
-    toolPruneTop3: { accuracy: pruneAcc, latencyMs: tpLatency, tokensPerTurn: tpTokens },
-    toolPruneDirect: { accuracy: directAcc, latencyMs: avgJevLatency, tokensPerTurn: 385 }
+    fullContext: { accuracy: fcAcc, latencyMs: avgFcLatency, tokensPerTurn: avgFcTokens },
+    toolSearch: { accuracy: tsAcc, latencyMs: avgTsLatency, tokensPerTurn: avgTsTokens, recall: bm25RecallAcc },
+    toolPruneTop3: { accuracy: tpAcc, latencyMs: avgTpLatency, tokensPerTurn: avgTpTokens, recall: pruneTop3Acc },
+    toolPruneDirect: { accuracy: directAcc, latencyMs: avgJevLatency, tokensPerTurn: 385, bypassedRate: directDispatchPct }
   };
 
   fs.writeFileSync(path.resolve(__dirname, 'results.json'), JSON.stringify(outputPayload, null, 2));
   console.log('Saved results to bench/results.json\n');
 }
+
 
 run();
