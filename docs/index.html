@@ -423,9 +423,20 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <span class="font-mono text-ink-500 text-[11px]">Engine:</span>
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sage-100 text-sage-800 border border-sage-200">
-            TurboQuant (Offline WASM/FWHT)
+          <label for="engine-selector" class="font-mono text-ink-700 font-medium text-xs">Engine:</label>
+          <select id="engine-selector" class="px-2.5 py-1 rounded-lg bg-white border border-ink-200 text-xs font-mono font-medium text-ink-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-peach-300">
+            <option value="turboquant" selected>TurboQuant (0.4ms zero-dep heuristic)</option>
+            <option value="webml-kit">webml-kit / OpenJev WebGPU (MiniCPM5 2B / Qwen3 0.6B)</option>
+            <option value="typesafe">TypeSafe System One (Cloud API)</option>
+          </select>
+          <div id="webml-model-wrap" class="hidden items-center gap-1.5">
+            <select id="webml-model-select" class="px-2 py-1 rounded-lg bg-white border border-ink-200 text-xs font-mono font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-peach-300">
+              <option value="minicpm5-2b" selected>MiniCPM5 2B</option>
+              <option value="qwen3-0.6b">Qwen3 0.6B</option>
+            </select>
+          </div>
+          <span id="engine-status-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sage-100 text-sage-800 border border-sage-200">
+            0.4ms zero-dep heuristic
           </span>
         </div>
       </div>
