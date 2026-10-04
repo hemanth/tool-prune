@@ -105,7 +105,12 @@ class PlaygroundApp {
       this.engineStatusBadge.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sage-100 text-sage-800 border border-sage-200';
       this.engineStatusBadge.textContent = '0.4ms zero-dep heuristic';
     } else if (this.selectedEngineType === 'webml-kit') {
-      const modelLabel = this.selectedWebmlModel === 'minicpm5-2b' ? 'MiniCPM5 2B' : 'Qwen3 0.6B';
+      const modelLabels = {
+        'qwen3.5-4b': 'Qwen3.5 4B',
+        'minicpm5-2b': 'MiniCPM5 2B',
+        'qwen3-0.6b': 'Qwen3 0.6B'
+      };
+      const modelLabel = modelLabels[this.selectedWebmlModel] || 'MiniCPM5 2B';
       this.engineStatusBadge.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sky-100 text-sky-800 border border-sky-200';
       this.engineStatusBadge.textContent = `WebGPU / WASM (${modelLabel})`;
     } else if (this.selectedEngineType === 'typesafe') {
@@ -879,26 +884,27 @@ result = router.dispatch(${JSON.stringify(qStr)}, {
     const savedTokensEl = document.getElementById('calc-saved-tokens');
     const savedDollarsEl = document.getElementById('calc-saved-dollars');
     const savedHoursEl = document.getElementById('calc-saved-latency');
+    const latencyNoteEl = document.getElementById('calc-latency-note');
 
     const updateCalc = () => {
       const dailySteps = parseInt(stepsSlider?.value || 5000, 10);
       const toolCount = parseInt(toolsSlider?.value || 40, 10);
-      const costPerMillion = parseFloat(modelSelect?.value || 3.0); // e.g. $3 per 1M tokens
+      const costPerMillion = parseFloat(modelSelect?.value || 3.0);
 
       if (stepsVal) stepsVal.textContent = Number(dailySteps).toLocaleString();
       if (toolsVal) toolsVal.textContent = `${toolCount} tools`;
 
       // Calculation:
-      // Average tool schema = 160 tokens
-      // Baseline prompt per step = toolCount * 160
-      // Pruned prompt per step = 3 * 160 = 480 tokens
-      // Saved tokens per step = Math.max(0, (toolCount - 3) * 160)
-      const tokensSavedPerStep = Math.max(0, (toolCount - 3) * 160);
+      // Average tool schema = 160 tokens, Top-3 candidates retained
+      const prunedTools = Math.max(0, toolCount - 3);
+      const tokensSavedPerStep = prunedTools * 160;
       const monthlyTokens = dailySteps * tokensSavedPerStep * 30;
       const monthlyCost = (monthlyTokens / 1000000) * costPerMillion;
+      const schemaReductionPct = Math.round((prunedTools / toolCount) * 100);
 
-      // Latency saved: LLM input ingestion + time = ~1.2ms per tool token or ~800ms saved per step
-      const monthlyHoursSaved = (dailySteps * 30 * 0.7) / 3600; // in hours
+      // Empirical latency saved: 360ms saved across 57 pruned schemas (555ms -> 195ms) = ~6.316ms per pruned schema
+      const latencySavedMs = Math.round(prunedTools * 6.3158);
+      const monthlyHoursSaved = (dailySteps * 30 * (prunedTools * 0.0063158)) / 3600;
 
       if (savedTokensEl) {
         if (monthlyTokens >= 1000000000) {
@@ -911,7 +917,12 @@ result = router.dispatch(${JSON.stringify(qStr)}, {
         savedDollarsEl.textContent = `$${Math.round(monthlyCost).toLocaleString()}`;
       }
       if (savedHoursEl) {
-        savedHoursEl.textContent = `${Math.round(monthlyHoursSaved).toLocaleString()}h`;
+        savedHoursEl.textContent = monthlyHoursSaved < 10
+          ? `${monthlyHoursSaved.toFixed(1)}h`
+          : `${Math.round(monthlyHoursSaved).toLocaleString()}h`;
+      }
+      if (latencyNoteEl) {
+        latencyNoteEl.textContent = `~${latencySavedMs}ms saved/step (${schemaReductionPct}% schema reduction)`;
       }
     };
 

@@ -426,11 +426,12 @@
           <label for="engine-selector" class="font-mono text-ink-700 font-medium text-xs">Engine:</label>
           <select id="engine-selector" class="px-2.5 py-1 rounded-lg bg-white border border-ink-200 text-xs font-mono font-medium text-ink-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-peach-300">
             <option value="turboquant" selected>TurboQuant (0.4ms zero-dep heuristic)</option>
-            <option value="webml-kit">webml-kit / OpenJev WebGPU (MiniCPM5 2B / Qwen3 0.6B)</option>
+            <option value="webml-kit">webml-kit / SemIf WebGPU (Qwen3.5 4B / MiniCPM5 2B / Qwen3 0.6B)</option>
             <option value="typesafe">TypeSafe System One (Cloud API)</option>
           </select>
           <div id="webml-model-wrap" class="hidden items-center gap-1.5">
             <select id="webml-model-select" class="px-2 py-1 rounded-lg bg-white border border-ink-200 text-xs font-mono font-medium text-ink-800 focus:outline-none focus:ring-2 focus:ring-peach-300">
+              <option value="qwen3.5-4b">Qwen3.5 4B</option>
               <option value="minicpm5-2b" selected>MiniCPM5 2B</option>
               <option value="qwen3-0.6b">Qwen3 0.6B</option>
             </select>
@@ -608,10 +609,11 @@
             </label>
             <div class="relative">
               <select id="calc-model" class="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-canvas border border-ink-200 text-ink-900 appearance-none focus:outline-none focus:ring-2 focus:ring-peach-300">
-                <option value="3.0">Claude 3.5 Sonnet ($3.00 / 1M input tokens)</option>
-                <option value="2.5">GPT-4o ($2.50 / 1M input tokens)</option>
-                <option value="1.25">Gemini 1.5 Pro ($1.25 / 1M input tokens)</option>
-                <option value="0.15">Claude 3.5 Haiku ($0.80 / 1M input tokens)</option>
+                <option value="3.0">Claude Sonnet 4.5 ($3.00 / 1M input tokens)</option>
+                <option value="2.5">GPT-4o / GPT-4.1 ($2.50 / 1M input tokens)</option>
+                <option value="1.25">Gemini 2.5 Pro ($1.25 / 1M input tokens)</option>
+                <option value="1.0">Claude Haiku 4.5 ($1.00 / 1M input tokens)</option>
+                <option value="0.8">Claude 3.5 Haiku ($0.80 / 1M input tokens)</option>
               </select>
               <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-ink-500">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -623,7 +625,7 @@
         </div>
 
         <div class="p-3.5 rounded-xl bg-sage-50 border border-sage-200 text-xs text-sage-800 leading-relaxed font-normal">
-          Note: Assumes average tool schema specification is 160 tokens and pruning selects Top-3 candidates.
+          Note: Assumes 160 tokens per tool schema (uncached input), Top-3 candidate pruning, and ~6.3ms LLM prefill latency per pruned schema (measured on 60 tools: 555ms &rarr; 195ms).
         </div>
       </div>
 
@@ -657,11 +659,11 @@
               <div>
                 <div class="text-xs font-mono uppercase text-ink-500">Total Agent Hours Saved</div>
                 <div id="calc-saved-latency" class="text-2xl font-bold font-mono text-sky-800 mt-1">
-                  29h
+                  9.7h
                 </div>
               </div>
-              <div class="text-right text-xs text-ink-600 font-mono">
-                Prompt token processing latency cut by 88%
+              <div id="calc-latency-note" class="text-right text-xs text-ink-600 font-mono">
+                ~234ms saved/step (93% schema reduction)
               </div>
             </div>
           </div>
