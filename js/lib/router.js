@@ -148,7 +148,7 @@ export class ToolPruner {
     const start = performance.now();
 
     // Check if turboquant-search (WASM) is available
-    if (!this._tqEngine) {
+    if (!this._tqEngine && !this._wasmEngine) {
       try {
         const { TurboSearch } = await import('turboquant-search');
         const data = Array.from(this.registry.values()).map(t => ({
