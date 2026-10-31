@@ -484,6 +484,15 @@ class PlaygroundApp {
     if (this.savingsBadge) {
       this.savingsBadge.textContent = `-${savedPercent}% tokens`;
     }
+    const barBaselineEl = document.getElementById('bar-baseline-tokens');
+    const barPrunedEl = document.getElementById('bar-pruned-tokens');
+    const barFillEl = document.getElementById('bar-pruned-fill');
+    if (barBaselineEl) barBaselineEl.textContent = `~${baselineTokens.toLocaleString()} tokens`;
+    if (barPrunedEl) barPrunedEl.textContent = `~${prunedTokens.toLocaleString()} tokens`;
+    if (barFillEl && baselineTokens > 0) {
+      const pctWidth = Math.max(2, Math.min(100, (prunedTokens / baselineTokens) * 100));
+      barFillEl.style.width = `${pctWidth.toFixed(1)}%`;
+    }
 
     const candidatesCountEl = document.getElementById('candidates-count');
     if (candidatesCountEl) {
