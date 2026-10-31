@@ -6,18 +6,16 @@ import { TurboQuantSearch } from './turboquant.mjs';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Load turboquant-search from /tmp/turboquant-search/dist/index.js
+// Optional turboquant-search WASM package
 let TurboSearch = null;
 try {
-  const mod = await import('/tmp/turboquant-search/dist/index.js');
+  const mod = await import('turboquant-search');
   TurboSearch = mod.TurboSearch;
-} catch (e) {
-  console.log('Note: turboquant-search wasm module not loaded from /tmp:', e.message);
-}
+} catch {}
 
-// Read API Key
+// Optional TypeSafe API Key
 let API_KEY = process.env.TYPESAFE_API_KEY;
-if (!API_KEY) {
+if (API_KEY === undefined) {
   try {
     const envContent = fs.readFileSync(path.resolve(__dirname, '../../tc39-typesafe/.env'), 'utf8');
     const match = envContent.match(/TYPESAFE_API_KEY=(.+)/);
@@ -53,6 +51,7 @@ for (const q of questions) {
       globalToolsMap.set(fn.name, {
         name: fn.name,
         description: fn.description || fn.name,
+        parameters: fn.parameters,
         criteria: `${fn.description || ''} ${Object.keys(fn.parameters?.properties || {}).join(' ')}`
       });
     }
@@ -71,6 +70,7 @@ for (const q of questions) {
       candidates: q.function.map(f => ({
         name: f.name,
         description: f.description || '',
+        parameters: f.parameters,
         criteria: `${f.description || ''} ${Object.keys(f.parameters?.properties || {}).join(' ')}`
       }))
     });
@@ -144,7 +144,7 @@ async function runBFCLBenchmark() {
   }
 
   // Setup built-in TurboQuant on global 100 tools
-  const globalTqBuiltin = new TurboQuantSearch(256, 64);
+  const globalTqBuiltin = new TurboQuantSearch();
   globalTqBuiltin.index(global100Map);
 
   // Setup criteria for 100 tools for Jev
@@ -162,7 +162,7 @@ async function runBFCLBenchmark() {
     const bm25DistractorTop1 = bm25Candidates[0] === test.target;
 
     // 2. Pure JS TurboQuant on candidates
-    const localTq = new TurboQuantSearch(256, 64);
+    const localTq = new TurboQuantSearch();
     localTq.index(Object.fromEntries(test.candidates.map(c => [c.name, c])));
     const tqCandT0 = performance.now();
     const tqCandidateRes = localTq.search(test.query, test.candidates.length);
@@ -327,8 +327,12 @@ async function runBFCLBenchmark() {
   console.log('-----------------------------------------------------------------------------------------');
   console.log(`Method                         │ Top-1 Accuracy │ Latency        │ Network Required`);
   console.log('───────────────────────────────┼────────────────┼────────────────┼───────────────────────');
-  console.log(`TypeSafe System One (Jev)      │ ${pct(results, 'jevDistractorTop1').padEnd(14)} │ ~${Math.round(results.reduce((a,b)=>a+b.jevLatency,0)/total)} ms        │ Yes (Cloud API)`);
-  console.log(`turboquant-search (WASM)       │ ${pct(results, 'wasmDistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.wasmDistractorLatency,0)/total).toFixed(2)} ms       │ No (100% Offline)`);
+  if (API_KEY) {
+    console.log(`TypeSafe System One (Jev)      │ ${pct(results, 'jevDistractorTop1').padEnd(14)} │ ~${Math.round(results.reduce((a,b)=>a+b.jevLatency,0)/total)} ms        │ Yes (Cloud API)`);
+  }
+  if (TurboSearch) {
+    console.log(`turboquant-search (WASM)       │ ${pct(results, 'wasmDistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.wasmDistractorLatency,0)/total).toFixed(2)} ms       │ No (100% Offline)`);
+  }
   console.log(`TurboQuant (Pure JS built-in)  │ ${pct(results, 'tqDistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.tqDistractorLatency,0)/total).toFixed(3)} ms      │ No (100% Offline)`);
   console.log(`BM25 Lexical Baseline          │ ${pct(results, 'bm25DistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.bm25DistractorLatency,0)/total).toFixed(3)} ms      │ No (100% Offline)`);
   console.log('-----------------------------------------------------------------------------------------');
@@ -338,8 +342,12 @@ async function runBFCLBenchmark() {
   console.log('-----------------------------------------------------------------------------------------');
   console.log(`Method                         │ Top-1          │ Top-3 Recall   │ Top-5 Recall   │ Search Latency`);
   console.log('───────────────────────────────┼────────────────┼────────────────┼────────────────┼───────────────');
-  console.log(`TypeSafe System One (Jev)      │ ${pct(in100Results, 'jevGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'jevGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'jevGlobalTop5').padEnd(14)} │ ~${Math.round(in100Results.reduce((a,b)=>a+b.jevGlobalLatency,0)/in100Results.length)} ms (Cloud)`);
-  console.log(`turboquant-search (WASM)       │ ${pct(in100Results, 'wasmGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'wasmGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'wasmGlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.wasmGlobalLatency,0)/in100Results.length).toFixed(2)} ms (Local)`);
+  if (API_KEY) {
+    console.log(`TypeSafe System One (Jev)      │ ${pct(in100Results, 'jevGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'jevGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'jevGlobalTop5').padEnd(14)} │ ~${Math.round(in100Results.reduce((a,b)=>a+b.jevGlobalLatency,0)/in100Results.length)} ms (Cloud)`);
+  }
+  if (TurboSearch) {
+    console.log(`turboquant-search (WASM)       │ ${pct(in100Results, 'wasmGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'wasmGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'wasmGlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.wasmGlobalLatency,0)/in100Results.length).toFixed(2)} ms (Local)`);
+  }
   console.log(`TurboQuant (Pure JS built-in)  │ ${pct(in100Results, 'tqGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'tqGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'tqGlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.tqGlobalLatency,0)/in100Results.length).toFixed(3)} ms (Local)`);
   console.log(`BM25 Lexical Baseline          │ ${pct(in100Results, 'bm25GlobalTop1').padEnd(14)} │ ${pct(in100Results, 'bm25GlobalTop3').padEnd(14)} │ ${pct(in100Results, 'bm25GlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.bm25GlobalLatency,0)/in100Results.length).toFixed(3)} ms (Local)`);
   console.log('-----------------------------------------------------------------------------------------');
@@ -348,7 +356,12 @@ async function runBFCLBenchmark() {
   for (const r of results.slice(0, 4)) {
     console.log(`Query: "${r.query.slice(0, 75)}..."`);
     console.log(`  Target: [${r.target}]`);
-    console.log(`  Jev: ${r.jevDistractorTop1 ? 'PASS' : 'FAIL'} | WASM: ${r.wasmDistractorTop1 ? 'PASS' : 'FAIL'} | Pure JS: ${r.tqDistractorTop1 ? 'PASS' : 'FAIL'} | BM25: ${r.bm25DistractorTop1 ? 'PASS' : 'FAIL'}`);
+    const parts = [];
+    if (API_KEY) parts.push(`Jev: ${r.jevDistractorTop1 ? 'PASS' : 'FAIL'}`);
+    if (TurboSearch) parts.push(`WASM: ${r.wasmDistractorTop1 ? 'PASS' : 'FAIL'}`);
+    parts.push(`Pure JS: ${r.tqDistractorTop1 ? 'PASS' : 'FAIL'}`);
+    parts.push(`BM25: ${r.bm25DistractorTop1 ? 'PASS' : 'FAIL'}`);
+    console.log(`  ${parts.join(' | ')}`);
   }
 }
 

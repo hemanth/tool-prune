@@ -103,7 +103,7 @@ class PlaygroundApp {
     if (!this.engineStatusBadge) return;
     if (this.selectedEngineType === 'turboquant') {
       this.engineStatusBadge.className = 'inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sage-100 text-sage-800 border border-sage-200';
-      this.engineStatusBadge.textContent = '0.4ms zero-dep heuristic';
+      this.engineStatusBadge.textContent = '0.2ms zero-dep PolarQuant';
     } else if (this.selectedEngineType === 'webml-kit') {
       const modelLabels = {
         'qwen3.5-4b': 'Qwen3.5 4B',
@@ -718,21 +718,21 @@ const result = await router.dispatch(${JSON.stringify(qStr)}, {
           .map(([k, v]) => `    ${JSON.stringify(k)}: ${JSON.stringify(v)}`)
           .join(',\n');
 
-        code = `# Python API: local on-device OpenJev / webml-kit decision engine
+        code = `# Python API: custom local decision engine (.choice() contract)
 from tool_prune import ToolPrune
 
 tools = {
 ${pyToolsEntries}
 }
 
-# 1. Router configured for on-device OpenJev evaluation
-router = ToolPrune(tools, threshold=${this.threshold}, engine="openjev")
+# 1. Pass any local decision engine implementing .choice({ state, question, options })
+router = ToolPrune(tools, threshold=${this.threshold}, engine=decision_engine)
 candidates = router.filter(${JSON.stringify(qStr)})
 
 # 2. Fast-path direct dispatch
 result = router.dispatch(${JSON.stringify(qStr)}, {
     "${toolName}": lambda q: handle_direct(q),
-    "fallback": lambda q, c: call_llm(q, c)
+    "fallback": lambda q, m: call_llm(q, m.auto_tools)
 })`;
       }
     } else if (this.selectedEngineType === 'typesafe') {

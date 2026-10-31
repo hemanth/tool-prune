@@ -34,8 +34,8 @@ console.log(`===================================================================
 console.log(`SCIENTIFIC EVALUATION: TYPESAFE JEV vs HEMANTH/TURBOQUANT-SEARCH (${toolNames.length} TOOLS, ${testCases.length} QUERIES)`);
 console.log(`==============================================================================`);
 
-// 1. Setup Built-in TurboQuant (pure JS FWHT + QJL)
-const tqBuiltin = new TurboQuantSearch(256, 64);
+// 1. Setup Built-in TurboQuant (pure JS FWHT + PolarQuant + QJL)
+const tqBuiltin = new TurboQuantSearch();
 tqBuiltin.index(catalog);
 
 // 2. Setup hemanth/turboquant-search (WASM SIMD)

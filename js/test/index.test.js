@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import toolPrune, { ToolPruner, normalizeTools } from '../index.js';
+import toolPrune, { ToolPruner, TurboQuantEngine, normalizeTools, autoSelectCandidates } from '../index.js';
 
 test('normalizeTools accepts dictionary format', () => {
   const { criteria, registry } = normalizeTools({
@@ -12,17 +12,49 @@ test('normalizeTools accepts dictionary format', () => {
   assert.equal(registry.get('read').name, 'read');
 });
 
-test('normalizeTools accepts array format', () => {
-  const { criteria, registry } = normalizeTools([
-    { name: 'read', description: 'Read file' },
-    { id: 'write', criteria: 'Write file' }
-  ]);
-  assert.equal(criteria.read, 'Read file');
-  assert.equal(criteria.write, 'Write file');
-  assert.equal(registry.get('read').name, 'read');
+test('normalizeTools accepts array, MCP inputSchema, Anthropic input_schema, and OpenAI function format', () => {
+  const mcpTool = {
+    name: 'postgres_query',
+    description: 'Run read-only SQL',
+    inputSchema: {
+      type: 'object',
+      properties: { sql: { type: 'string', description: 'SELECT statement' } }
+    }
+  };
+  const anthropicTool = {
+    name: 'slack_post',
+    description: 'Post message to channel',
+    input_schema: {
+      type: 'object',
+      properties: { channel: { type: 'string' }, text: { type: 'string' } }
+    }
+  };
+  const openaiTool = {
+    type: 'function',
+    function: {
+      name: 'get_exchange_rate',
+      description: 'Fetch currency rate',
+      parameters: {
+        type: 'object',
+        properties: {
+          base: { type: 'string', enum: ['USD', 'EUR', 'GBP'] },
+          date: { type: 'string', description: 'Historical ISO date' }
+        }
+      }
+    }
+  };
+
+  const { criteria, registry } = normalizeTools([mcpTool, anthropicTool, openaiTool]);
+  assert.match(criteria.postgres_query, /params: sql/);
+  assert.match(criteria.slack_post, /params: channel, text/);
+  assert.match(criteria.get_exchange_rate, /params: base, date/);
+  // Exact original SDK objects preserved for LLM tool-calling passthrough
+  assert.strictEqual(registry.get('postgres_query'), mcpTool);
+  assert.strictEqual(registry.get('slack_post'), anthropicTool);
+  assert.strictEqual(registry.get('get_exchange_rate'), openaiTool);
 });
 
-test('ToolPruner can be instantiated', () => {
+test('ToolPruner can be instantiated and exports are complete', () => {
   const pruner = toolPrune({
     read: 'Read file',
     write: 'Write file'
@@ -31,6 +63,8 @@ test('ToolPruner can be instantiated', () => {
   assert.equal(typeof pruner.select, 'function');
   assert.equal(typeof pruner.filter, 'function');
   assert.equal(typeof pruner.dispatch, 'function');
+  assert.equal(typeof TurboQuantEngine, 'function');
+  assert.equal(typeof autoSelectCandidates, 'function');
 });
 
 test('ToolPruner defaults to turboquant if API key is missing', async () => {
@@ -43,7 +77,7 @@ test('ToolPruner defaults to turboquant if API key is missing', async () => {
   const res = await pruner.select('read package.json');
   assert.equal(res.engine, 'turboquant');
   assert.equal(res.tool, 'read_file');
-  assert.ok(res.confidence > 0);
+  assert.ok(res.confidence > 0.5);
   assert.equal(res.topK.length, 2);
 });
 
@@ -54,6 +88,114 @@ test('ToolPruner throws if engine is typesafe and API key missing', async () => 
     async () => await pruner.select('read a file', { engine: 'typesafe' }),
     /TypeSafe API key required/
   );
+});
+
+test('ToolPruner filter preserves OpenAI wrapped function schemas', async () => {
+  const openaiTools = [
+    {
+      type: 'function',
+      function: {
+        name: 'EuclideanDistance.calculate',
+        description: 'Compute Euclidean distance between two 2D points',
+        parameters: { type: 'object', properties: { pointA: { type: 'array' }, pointB: { type: 'array' } } }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'send_smtp_email',
+        description: 'Send email notification via SMTP',
+        parameters: { type: 'object', properties: { recipient: { type: 'string' } } }
+      }
+    }
+  ];
+  const router = toolPrune(openaiTools, { engine: 'turboquant' });
+  const filtered = await router.filter('Compute the Euclidean distance between A(3,4) and B(1,2)');
+  assert.equal(filtered.length, 1);
+  assert.strictEqual(filtered[0], openaiTools[0]);
+});
+
+test('TurboQuant handles negation, camelCase/snake_case, dates, and URI schemes', async () => {
+  const tools = {
+    git_diff_unstaged: 'View diffs of changes in working directory that are not yet staged',
+    git_diff_staged: 'View diffs of changes added to git staging index ready to commit',
+    http_get_request: 'Perform HTTP GET request to remote REST endpoint URL',
+    github_create_pr: 'Open a new pull request on GitHub repository',
+    rate_latest: {
+      description: 'Get latest exchange rate',
+      inputSchema: { properties: { from: { type: 'string' }, to: { type: 'string' } } }
+    },
+    rate_historical: {
+      description: 'Get exchange rate on a specific date',
+      inputSchema: { properties: { from: { type: 'string' }, to: { type: 'string' }, date: { type: 'string', description: 'Historical date' } } }
+    }
+  };
+  const router = toolPrune(tools, { engine: 'turboquant' });
+
+  const unstaged = await router.select("show the diff of changes I haven't staged yet");
+  assert.equal(unstaged.tool, 'git_diff_unstaged');
+
+  const staged = await router.select("show me what's currently in git staging ready to commit");
+  assert.equal(staged.tool, 'git_diff_staged');
+
+  // Hostname 'github' inside URL payload must not hijack HTTP GET to github_create_pr
+  const httpGet = await router.select('query GET https://status.github.com/api/v2/summary.json');
+  assert.equal(httpGet.tool, 'http_get_request');
+
+  // Temporal literal 'January 1, 2022' bridges to 'date' schema parameter
+  const hist = await router.select('Find conversion rate from Euro to Dollar on January 1, 2022');
+  assert.equal(hist.tool, 'rate_historical');
+});
+
+test('allowEmpty rejects unrelated out-of-domain queries with low confidence', async () => {
+  const tools = {
+    fs_read_file: 'Read raw text contents of a local file from disk',
+    db_query_select: 'Execute read-only SQL SELECT query against database'
+  };
+  const router = toolPrune(tools, { engine: 'turboquant', threshold: 0.7 });
+
+  const ood = await router.select('hello, how are you today?', { allowEmpty: true });
+  assert.equal(ood.tool, '');
+  assert.equal(ood.autoTools.length, 0);
+  assert.ok(ood.confidence < 0.2, `Expected low OOD confidence, got ${ood.confidence}`);
+
+  let fallbackCalled = false;
+  const dispatched = await router.dispatch('what is 149 * 82?', {
+    fs_read_file: () => 'should not run',
+    fallback: (_q, sel) => {
+      fallbackCalled = true;
+      return { mode: 'llm', confidence: sel.confidence };
+    }
+  }, { allowEmpty: true });
+  assert.ok(fallbackCalled);
+  assert.equal(dispatched.mode, 'llm');
+});
+
+test('Custom DecisionEngine object (webml-kit / SemIf .choice contract) works seamlessly', async () => {
+  const mockWebMLEngine = {
+    name: 'webml-kit',
+    async choice({ state, options }) {
+      assert.equal(state, 'run sql query on users');
+      assert.ok(options.run_sql);
+      return {
+        choice: 'run_sql',
+        confidence: 0.93,
+        probabilities: { run_sql: 0.93, read_file: 0.07 }
+      };
+    }
+  };
+
+  const router = toolPrune({
+    run_sql: 'Execute SQL against Postgres',
+    read_file: 'Read local file'
+  }, { engine: mockWebMLEngine, threshold: 0.85 });
+
+  const sel = await router.select('run sql query on users');
+  assert.equal(sel.engine, 'webml-kit');
+  assert.equal(sel.tool, 'run_sql');
+  assert.equal(sel.confidence, 0.93);
+  assert.equal(sel.autoTools.length, 1);
+  assert.equal(sel.autoTools[0].name, 'run_sql');
 });
 
 test('ToolPruner filter works with turboquant engine', async () => {
@@ -138,4 +280,3 @@ test('toolPrune.auto one-shot function returns auto-selected candidates', async 
   assert.ok(Array.isArray(selected));
   assert.equal(selected[0].name, 'git_commit');
 });
-

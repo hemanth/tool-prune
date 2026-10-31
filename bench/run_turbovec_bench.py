@@ -2,70 +2,17 @@ import os
 import sys
 import json
 import time
-import math
-import urllib.request
 import numpy as np
-from turbovec import TurboQuantIndex
 
-# Read API Key
-api_key = os.getenv("TYPESAFE_API_KEY")
-if not api_key:
-    try:
-        with open("/Users/lika/labs/tc39-typesafe/.env") as f:
-            for line in f:
-                if line.startswith("TYPESAFE_API_KEY="):
-                    api_key = line.split("=", 1)[1].strip()
-    except Exception:
-        pass
+# Import directly from local tool_prune package
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT_DIR, "python"))
 
-# FNV-1a Hash for subword / feature embedding (identical to turboquant-search)
-def fnv1a(s: str) -> int:
-    h = 0x811c9dc5
-    for ch in s:
-        h ^= ord(ch)
-        h = (h * 0x01000193) & 0xFFFFFFFF
-    return h
-
-def tokenize(text: str):
-    import re
-    return [w for w in re.sub(r'[^a-z0-9_]', ' ', text.lower()).split() if len(w) > 1]
-
-def embed_text(text: str, dim: int = 384) -> np.ndarray:
-    vec = np.zeros(dim, dtype=np.float32)
-    tokens = tokenize(text)
-    if not tokens:
-        return vec
-    
-    tf = {}
-    for t in tokens:
-        tf[t] = tf.get(t, 0) + 1
-    total = len(tokens)
-
-    for term, count in tf.items():
-        weight = count / total
-        h = fnv1a(term)
-        idx1 = h % dim
-        idx2 = (h >> 16) % dim
-        sign = 1.0 if (h & 1) else -1.0
-        vec[idx1] += sign * weight * 1.5
-        vec[idx2] += -sign * weight * 0.8
-        
-        # Add character trigrams if term is long enough
-        if len(term) >= 3:
-            for j in range(len(term) - 2):
-                th = fnv1a(term[j:j+3])
-                t_idx = th % dim
-                t_sign = 1.0 if (th & 1) else -1.0
-                vec[t_idx] += t_sign * weight * 0.3
-
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec /= norm
-    return vec
+from tool_prune.turboquant import TurboQuantEngine, TurbovecEngine, extract_features
 
 # Load BFCL Dataset
-bfcl_path = "bench/bfcl_dataset/BFCL_v3_multiple.json"
-ans_path = "bench/bfcl_dataset/BFCL_v3_multiple_answers.json"
+bfcl_path = os.path.join(ROOT_DIR, "bench/bfcl_dataset/BFCL_v3_multiple.json")
+ans_path = os.path.join(ROOT_DIR, "bench/bfcl_dataset/BFCL_v3_multiple_answers.json")
 
 with open(bfcl_path) as f:
     bfcl_questions = [json.loads(line) for line in f if line.strip()]
@@ -73,12 +20,13 @@ with open(bfcl_path) as f:
 with open(ans_path) as f:
     bfcl_answers = {}
     for line in f:
-        if not line.strip(): continue
+        if not line.strip():
+            continue
         data = json.loads(line)
         targets = [list(gt.keys())[0] for gt in data.get("ground_truth", [])]
         bfcl_answers[data["id"]] = targets
 
-# Filter 60 valid test cases
+# Filter 60 valid test cases (matching run_bfcl_eval.mjs)
 bfcl_tests = []
 for q in bfcl_questions:
     targets = bfcl_answers.get(q["id"], [])
@@ -87,96 +35,130 @@ for q in bfcl_questions:
             "id": q["id"],
             "query": q["question"][0][0]["content"],
             "target": targets[0],
-            "candidates": q["function"]
+            "candidates": q["function"],
         })
 bfcl_tests = bfcl_tests[:60]
 
 print("=" * 78)
-print("BENCHMARK: TURBOVEC (PYTHON/RUST TURBOQUANT) vs TYPESAFE JEV ON BFCL")
+print("BENCHMARK: TURBOVEC (RUST SIMD) & PURE PYTHON TURBOQUANT ON GORILLA BFCL v3")
 print(f"Evaluated Test Cases: {len(bfcl_tests)} from Gorilla BFCL v3 Multiple")
 print("=" * 78)
 
-# 1. Evaluate turbovec on Local Distractor Selection
-# (For each query, build index over candidates and search)
-dim = 384
+# 1. Evaluate TurbovecEngine & TurboQuantEngine on Local Distractor Selection
 tv_distractor_correct = 0
-tv_latencies = []
+py_distractor_correct = 0
+tv_kernel_latencies = []
+py_latencies = []
 
 for test in bfcl_tests:
-    candidates = test["candidates"]
-    cand_vecs = np.zeros((len(candidates), dim), dtype=np.float32)
-    for i, c in enumerate(candidates):
-        text = f"{c['name']} {c.get('description', '')} {' '.join(c.get('parameters', {}).get('properties', {}).keys())}"
-        cand_vecs[i] = embed_text(text, dim)
+    cand_map = {fn["name"]: fn for fn in test["candidates"]}
 
-    # 3-bit TurboQuantIndex
-    idx = TurboQuantIndex(dim=dim, bit_width=3)
-    idx.add(cand_vecs)
+    tv_eng = TurbovecEngine(dim=1024, bit_width=4)
+    tv_eng.fit(cand_map)
 
-    q_vec = embed_text(test["query"], dim).reshape(1, dim)
+    q_feats = extract_features(test["query"], 1.0, {}, True)
+    q_vec_list, _, _ = tv_eng._embedder._embed_features(q_feats, True)
+    q_vec = np.array(q_vec_list, dtype=np.float32).reshape(1, tv_eng.dim)
+
     t0 = time.perf_counter()
-    scores, indices = idx.search(q_vec, k=1)
-    latency_ms = (time.perf_counter() - t0) * 1000.0
-    tv_latencies.append(latency_ms)
+    _, indices = tv_eng.index.search(q_vec, k=1)
+    tv_kernel_latencies.append((time.perf_counter() - t0) * 1000.0)
 
-    top_choice = candidates[indices[0][0]]["name"]
-    if top_choice == test["target"]:
+    if tv_eng.items[int(indices[0][0])] == test["target"]:
         tv_distractor_correct += 1
 
-tv_distractor_acc = (tv_distractor_correct / len(bfcl_tests)) * 100.0
-avg_tv_latency = sum(tv_latencies) / len(tv_latencies)
+    py_eng = TurboQuantEngine(dim=1024)
+    py_eng.fit(cand_map)
+    t1 = time.perf_counter()
+    py_res = py_eng.search(test["query"], top_k=1)
+    py_latencies.append((time.perf_counter() - t1) * 1000.0)
+    if py_res and py_res[0]["name"] == test["target"]:
+        py_distractor_correct += 1
 
-# 2. Evaluate turbovec on Global 100-Tool Catalog Pruning
+tv_distractor_acc = (tv_distractor_correct / len(bfcl_tests)) * 100.0
+py_distractor_acc = (py_distractor_correct / len(bfcl_tests)) * 100.0
+avg_tv_kernel_ms = sum(tv_kernel_latencies) / len(tv_kernel_latencies)
+avg_py_ms = sum(py_latencies) / len(py_latencies)
+
+# 2. Evaluate Global 100-Tool Catalog Pruning
 all_tools = {}
 for q in bfcl_questions:
     for fn in q["function"]:
-        if fn["name"] not in all_tools:
-            all_tools[fn["name"]] = f"{fn['name']} {fn.get('description', '')} {' '.join(fn.get('parameters', {}).get('properties', {}).keys())}"
+        if fn["name"] not in all_tools and len(all_tools) < 100:
+            all_tools[fn["name"]] = fn
 
-tool_names = list(all_tools.keys())[:100]
-global_matrix = np.zeros((len(tool_names), dim), dtype=np.float32)
-for i, name in enumerate(tool_names):
-    global_matrix[i] = embed_text(all_tools[name], dim)
+tv_global = TurbovecEngine(dim=1024, bit_width=4)
+tv_global.fit(all_tools)
 
-global_index = TurboQuantIndex(dim=dim, bit_width=3)
-global_index.add(global_matrix)
+py_global = TurboQuantEngine(dim=1024)
+py_global.fit(all_tools)
 
-global_top1 = 0
-global_top3 = 0
-global_top5 = 0
+tv_top1 = tv_top3 = tv_top5 = 0
+py_top1 = py_top3 = py_top5 = 0
 in_catalog_count = 0
+tv_100_kernel_ms = []
+tv_100_e2e_ms = []
+py_100_e2e_ms = []
 
 for test in bfcl_tests:
-    if test["target"] not in tool_names:
+    if test["target"] not in all_tools:
         continue
     in_catalog_count += 1
-    q_vec = embed_text(test["query"], dim).reshape(1, dim)
-    _, indices = global_index.search(q_vec, k=5)
-    matched_names = [tool_names[idx] for idx in indices[0]]
-    if matched_names[0] == test["target"]:
-        global_top1 += 1
-    if test["target"] in matched_names[:3]:
-        global_top3 += 1
-    if test["target"] in matched_names[:5]:
-        global_top5 += 1
 
-global_top1_acc = (global_top1 / in_catalog_count) * 100.0
-global_top3_acc = (global_top3 / in_catalog_count) * 100.0
-global_top5_acc = (global_top5 / in_catalog_count) * 100.0
+    q_feats = extract_features(test["query"], 1.0, {}, True)
+    q_vec_list, _, _ = tv_global._embedder._embed_features(q_feats, True)
+    q_vec = np.array(q_vec_list, dtype=np.float32).reshape(1, tv_global.dim)
 
-print("\n--- RESULTS: TURBOVEC ON BERKELEY FUNCTION CALLING LEADERBOARD ---")
-print(f"Distractor Selection Top-1 Accuracy: {tv_distractor_acc:.1f}%")
-print(f"Search Latency per Query:            {avg_tv_latency:.3f} ms (Rust SIMD)")
-print(f"\n100-Tool Catalog Pruning:")
-print(f"- Top-1 Accuracy:                     {global_top1_acc:.1f}%")
-print(f"- Top-3 Recall:                       {global_top3_acc:.1f}%")
-print(f"- Top-5 Recall:                       {global_top5_acc:.1f}%")
+    t_k = time.perf_counter()
+    _, idxs = tv_global.index.search(q_vec, k=5)
+    tv_100_kernel_ms.append((time.perf_counter() - t_k) * 1000.0)
+
+    t_e2e = time.perf_counter()
+    tv_res = tv_global.search(test["query"], top_k=5)
+    tv_100_e2e_ms.append((time.perf_counter() - t_e2e) * 1000.0)
+
+    tv_names = [r["name"] for r in tv_res]
+    if tv_names and tv_names[0] == test["target"]:
+        tv_top1 += 1
+    if test["target"] in tv_names[:3]:
+        tv_top3 += 1
+    if test["target"] in tv_names[:5]:
+        tv_top5 += 1
+
+    t_py = time.perf_counter()
+    py_res = py_global.search(test["query"], top_k=5)
+    py_100_e2e_ms.append((time.perf_counter() - t_py) * 1000.0)
+
+    py_names = [r["name"] for r in py_res]
+    if py_names and py_names[0] == test["target"]:
+        py_top1 += 1
+    if test["target"] in py_names[:3]:
+        py_top3 += 1
+    if test["target"] in py_names[:5]:
+        py_top5 += 1
+
+tv_g1 = (tv_top1 / in_catalog_count) * 100.0
+tv_g3 = (tv_top3 / in_catalog_count) * 100.0
+tv_g5 = (tv_top5 / in_catalog_count) * 100.0
+py_g1 = (py_top1 / in_catalog_count) * 100.0
+py_g3 = (py_top3 / in_catalog_count) * 100.0
+py_g5 = (py_top5 / in_catalog_count) * 100.0
+avg_tv_100_kernel = sum(tv_100_kernel_ms) / len(tv_100_kernel_ms)
+avg_tv_100_e2e = sum(tv_100_e2e_ms) / len(tv_100_e2e_ms)
+avg_py_100_e2e = sum(py_100_e2e_ms) / len(py_100_e2e_ms)
+
+print("\n--- RESULTS: BERKELEY FUNCTION CALLING LEADERBOARD (BFCL v3) ---")
+print(f"Turbovec (Rust SIMD) Distractor Top-1: {tv_distractor_acc:.1f}% ({avg_tv_kernel_ms:.3f} ms SIMD kernel, {avg_tv_100_e2e:.3f} ms E2E)")
+print(f"Pure Python TurboQuant Distractor Top-1: {py_distractor_acc:.1f}% ({avg_py_ms:.3f} ms E2E)")
+print(f"\n100-Tool Catalog Pruning ({in_catalog_count} queries):")
+print(f"- Turbovec (Rust SIMD): Top-1 {tv_g1:.1f}% | Top-3 {tv_g3:.1f}% | Top-5 {tv_g5:.1f}% ({avg_tv_100_kernel:.3f} ms SIMD kernel)")
+print(f"- Pure Python Stdlib:   Top-1 {py_g1:.1f}% | Top-3 {py_g3:.1f}% | Top-5 {py_g5:.1f}% ({avg_py_100_e2e:.3f} ms E2E)")
 
 print("\nComparison Summary:")
-print("-" * 78)
-print(f"{'Engine':<28} | {'BFCL Distractors':<16} | {'100-Tool Top-5':<14} | {'Latency':<10}")
-print("-" * 78)
-print(f"{'TypeSafe System One (Jev)':<28} | {'100.0%':<16} | {'100.0%':<14} | {'~145 ms':<10}")
-print(f"{'turbovec (Python/Rust)':<28} | {f'{tv_distractor_acc:.1f}%':<16} | {f'{global_top5_acc:.1f}%':<14} | {f'{avg_tv_latency:.3f} ms':<10}")
-print(f"{'turboquant-search (JS/WASM)':<28} | {'86.7%':<16} | {'85.0%':<14} | {'~14 ms':<10}")
-print("-" * 78)
+print("-" * 82)
+print(f"{'Engine':<30} | {'BFCL Distractors':<16} | {'100-Tool Top-5':<14} | {'Latency':<14}")
+print("-" * 82)
+print(f"{'TypeSafe System One (Jev)':<30} | {'100.0%':<16} | {'100.0%':<14} | {'~189 ms':<14}")
+print(f"{'turbovec (Python/Rust SIMD)':<30} | {f'{tv_distractor_acc:.1f}%':<16} | {f'{tv_g5:.1f}%':<14} | {f'{avg_tv_100_kernel:.3f} ms':<14}")
+print(f"{'TurboQuant (Pure Python)':<30} | {f'{py_distractor_acc:.1f}%':<16} | {f'{py_g5:.1f}%':<14} | {f'{avg_py_100_e2e:.2f} ms':<14}")
+print("-" * 82)

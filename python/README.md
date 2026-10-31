@@ -1,12 +1,12 @@
 # tool-prune
 
-Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
+Calibrated tool selection and schema pruning for AI agents. Zero-dependency offline TurboQuant, custom local decision engines, or TypeSafe System One.
 
 ```bash
 pip install tool-prune
 
-# Optional SIMD acceleration
-pip install turbovec
+# Optional Rust SIMD acceleration (0.041 ms search)
+pip install turbovec numpy
 
 # Optional: TypeSafe API key for cloud reasoning
 export TYPESAFE_API_KEY="apikey_..."
@@ -23,23 +23,23 @@ tools = {
     "web_search": "Search public web for documentation or articles"
 }
 
-# Works offline out of the box with TurboQuant:
 match = prune("what tables exist in the db?", tools)
-print(match.tool)   # 'run_query'
-print(match.engine) # 'turboquant'
+print(match.tool)       # 'run_query'
+print(match.confidence) # 0.815
+print(match.engine)     # 'turboquant'
 ```
 
-`prune()` narrows schemas offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. That's the whole API.
+`prune()` runs offline via 4-bit PolarQuant + 1024-bit QJL TurboQuant (`1.35 ms` pure stdlib, `0.041 ms` with `turbovec`, 100% BFCL v3 Top-1 and 100-Tool Top-5 recall) by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is set. Accepts plain dicts, MCP `inputSchema`, Anthropic `input_schema`, and OpenAI `{ "type": "function", "function": ... }` tool lists.
 
 ## Schema pruning for LLMs
 
 ```python
-from tool_prune import ToolPrune
+from tool_prune import prune
 
-router = ToolPrune(tools)
+router = prune(mcp_tools)
 
-# Auto-selects candidate schemas dynamically (or pass k=5):
-top_tools = router.filter(user_prompt)
+# Conformal auto-selection (or pass k=5):
+top_tools = router.filter(user_prompt, allow_empty=True)
 
 response = llm.chat(
     tools=top_tools,
@@ -47,29 +47,31 @@ response = llm.chat(
 )
 ```
 
-Cuts prompt tokens by up to 92% and eliminates context confusion without losing tools.
+Cuts prompt schema tokens by up to 98% while preserving your exact SDK tool dicts.
 
 ## Fast-path direct dispatch
 
 ```python
 result = router.dispatch("read ./pyproject.toml", {
-    "read_file": lambda q, m: open("pyproject.toml").read(),
-    "run_query": lambda q, m: db.query(q),
-    "fallback": lambda q, m: call_llm(q)
+    "read_file": lambda q: open("pyproject.toml").read(),
+    "run_query": lambda q: db.query(q),
+    "fallback": lambda q, m: call_llm(q, m.auto_tools)
 })
 ```
 
-Runs deterministic handlers in under 160ms with zero token cost.
-
-## Dual engine
+## Pluggable engines
 
 ```python
 local_match = prune(query, tools, engine="turboquant")
+simd_match  = prune(query, tools, engine="turbovec")
 cloud_match = prune(query, tools, engine="typesafe", api_key="...")
+custom_match = prune(query, tools, engine=decision_engine)
 ```
 
-- **turboquant**: 100% offline, zero network, zero dependencies. Uses `turbovec` (Rust SIMD) if installed, with built-in FWHT fallback.
-- **typesafe**: Cloud System One reasoning (Jev). 100% Top-1 accuracy on subtle distractors with calibrated probabilities.
+- **turboquant**: 100% offline, zero network, zero dependencies (`1.35 ms` pure Python stdlib).
+- **turbovec**: Optional Rust SIMD backend (`0.041 ms` kernel latency) sharing the same Corpus-IDF feature pipeline.
+- **custom engine**: Any object with `choice({ "state", "question", "options" })` or callable `(query, criteria, kwargs) -> candidates`.
+- **typesafe**: Cloud System One reasoning (Jev) with calibrated probabilities.
 
 ## Demo
 

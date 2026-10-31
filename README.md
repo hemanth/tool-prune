@@ -1,6 +1,6 @@
 # tool-prune
 
-Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
+Calibrated tool selection and schema pruning for AI agents. Zero-dependency offline TurboQuant, on-device WebGPU/WASM engines, or TypeSafe System One.
 
 [**Live Interactive Playground →**](https://hemanth.github.io/tool-prune/)
 
@@ -26,24 +26,22 @@ const tools = {
 
 // Works offline out of the box with TurboQuant:
 const match = await prune('what tables exist in the db?', tools);
-console.log(match.tool);   // 'runQuery'
-console.log(match.engine); // 'turboquant'
+console.log(match.tool);       // 'runQuery'
+console.log(match.confidence); // 0.815
+console.log(match.engine);     // 'turboquant'
 ```
 
-`prune()` runs offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. That's the whole API.
+`prune()` runs offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. Accepts plain dictionaries, MCP `inputSchema` objects, Anthropic `input_schema` tools, and OpenAI `{ type: 'function', function }` arrays while returning your original tool objects unchanged.
 
 ## Schema pruning for LLMs
 
-Instead of dumping 100 MCP tool schemas into every prompt, prune them to the relevant candidates before calling your LLM:
+Prune large MCP or SDK tool catalogs down to the relevant candidates before calling your LLM:
 
 ```js
-const router = prune(tools);
+const router = prune(mcpTools);
 
-// Auto-selects candidates dynamically based on confidence drop-off:
-const topTools = await router.filter(userPrompt);
-
-// Or pass fixed k:
-// const topTools = await router.filter(userPrompt, { k: 5 });
+// Conformal auto-selection based on score distribution (or pass { k: 5 }):
+const topTools = await router.filter(userPrompt, { allowEmpty: true });
 
 const response = await llm.chat({
   tools: topTools,
@@ -51,50 +49,48 @@ const response = await llm.chat({
 });
 ```
 
-`filter()` automatically detects the optimal tool set based on score distribution, or accepts `{ k: 5 }` for fixed top-K. Cuts prompt tokens by up to 92% and eliminates context confusion.
-
+`filter()` selects candidate tools dynamically using uncertainty-aware drop-off, cutting prompt schema tokens by up to 98% while preserving 100% Top-5 recall on BFCL v3. Pass `{ allowEmpty: true }` to return `[]` on out-of-domain chat prompts.
 
 ## Fast-path direct dispatch
 
-Bypass the LLM entirely when confidence clears your threshold:
+Bypass the LLM when confidence clears your threshold:
 
 ```js
 const result = await router.dispatch('read ./package.json', {
   readFile: (query) => fs.readFileSync('package.json', 'utf8'),
   runQuery: (query) => db.query(query),
-  fallback: (query, match) => callLLM(query)
+  fallback: (query, match) => callLLM(query, match.autoTools)
 });
 ```
 
-Deterministic tool execution in under 160ms with zero LLM generation cost.
+## Pluggable engines
 
-## Dual engine
-
-Select between offline vector search and cloud reasoning:
+Switch between offline 4-bit PolarQuant + QJL vector search, on-device decision models (`webml-kit`), or cloud System One:
 
 ```js
-// Explicitly pick engine
 const localMatch = await prune(query, tools, { engine: 'turboquant' });
 const cloudMatch = await prune(query, tools, { engine: 'typesafe', apiKey: '...' });
+const onDevice   = await prune(query, tools, { engine: decisionEngine });
 ```
 
-- **turboquant**: 100% offline, zero network, zero dependencies. Uses `turboquant-search` (WASM SIMD) in JS or `turbovec` (Rust SIMD) in Python if installed, with seamless built-in FWHT fallback.
-- **typesafe**: Cloud System One reasoning (Jev). 100% Top-1 accuracy on subtle distractors with calibrated probabilities.
+- **turboquant**: 100% offline, zero network, zero dependencies. Corpus-IDF Count-Sketch + FWHT + 4-bit PolarQuant + 1024-bit QJL residual correction (`0.18 ms` in JS, `0.041 ms` with optional `turbovec` Rust SIMD in Python).
+- **custom `.choice()` / function**: Pass any on-device engine implementing `choice({ state, question, options })` (such as `webml-kit`) or `(query, criteria) => candidates`.
+- **typesafe**: Cloud System One reasoning (Jev) with calibrated probabilities and `requiresGeneration` scoring.
 
 ## Python
 
 Identical API and zero required dependencies:
 
 ```python
-from tool_prune import prune, ToolPrune
+from tool_prune import prune
 
-# One-shot offline pruning
+# One-shot offline selection
 match = prune("what tables exist in the db?", tools)
-print(match.tool, match.engine)
+print(match.tool, round(match.confidence, 3))
 
-# Reusable router for LLM prompt pruning (auto-selects candidates)
-router = ToolPrune(tools)
-candidates = router.filter(user_prompt)  # or router.filter(user_prompt, k=5)
+# Reusable router for LLM prompt pruning
+router = prune(tools)
+candidates = router.filter(user_prompt, allow_empty=True)
 ```
 
 ## Berkeley Function Calling Leaderboard (BFCL v3)
@@ -104,10 +100,10 @@ Evaluated on Gorilla BFCL v3 multiple-tool benchmark:
 | Engine | Backend | Distractor Top-1 | 100-Tool Top-5 Prune | Latency | Network |
 |---|---|---|---|---|---|
 | **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 189 ms | Cloud API |
-| **TurboQuant** | JS WASM (`turboquant-search`) | 86.7% | 85.0% | 16 ms | Offline |
-| **TurboQuant** | Python Rust (`turbovec`) | 85.0% | 82.5% | 0.018 ms | Offline |
-| **TurboQuant** | Pure JS / Python (built-in) | 86.7% | 77.5% | 0.14 ms | Offline |
-| *BM25 (Baseline)* | Lexical search | 88.3% | 95.0% | 0.025 ms | Offline |
+| **TurboQuant** | Python Rust (`turbovec`) | **100.0%** | **100.0%** | 0.041 ms | Offline |
+| **TurboQuant** | Pure JS (built-in) | **100.0%** | **100.0%** | 0.18 ms | Offline |
+| **TurboQuant** | Pure Python (stdlib) | **100.0%** | **100.0%** | 1.35 ms | Offline |
+| *BM25 (Baseline)* | Lexical search | 88.3% | 95.0% | 1.30 ms | Offline |
 
 ## End-to-End Agent Architecture Benchmark (60 Tools)
 
@@ -124,9 +120,8 @@ Evaluated with Claude Haiku 4.5 across 60 tool schemas and 79 queries:
 Run evaluations:
 
 ```bash
-node bench/run.mjs --size 60
-node bench/run_codemode_eval.mjs
 node bench/run_bfcl_eval.mjs
+node bench/run_tqs_eval.mjs --size 60
 uv run --with turbovec --with numpy python3 bench/run_turbovec_bench.py
 ```
 

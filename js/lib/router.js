@@ -1,7 +1,24 @@
 import { TurboQuantEngine } from './turboquant.js';
 
+function buildRichCriteria(name, def) {
+  if (!def || typeof def !== 'object') return String(def || name);
+  if (def.criteria) return String(def.criteria);
+
+  const base = def.description || def.summary || def.title || name;
+  const schema = def.parameters || def.inputSchema || def.input_schema || def.schema;
+  const props = schema?.properties;
+  if (props && typeof props === 'object') {
+    const keys = Object.keys(props);
+    if (keys.length > 0) {
+      return `${base} (params: ${keys.slice(0, 12).join(', ')})`;
+    }
+  }
+  return String(base);
+}
+
 /**
- * Normalize diverse tool definitions (Dict, Array, MCP Schema) into a clean criteria map.
+ * Normalize diverse tool definitions (Dict, Array, MCP inputSchema, Anthropic input_schema,
+ * OpenAI { type: 'function', function: {...} }) into a criteria map and tool registry.
  */
 export function normalizeTools(tools) {
   const criteria = {};
@@ -10,21 +27,22 @@ export function normalizeTools(tools) {
   if (Array.isArray(tools)) {
     for (const t of tools) {
       if (!t || typeof t !== 'object') continue;
-      const name = t.name || t.id;
+      const fnDef = (t.function && typeof t.function === 'object') ? t.function : t;
+      const name = fnDef.name || t.name || t.id;
       if (!name) continue;
-      const desc = t.criteria || t.description || t.summary || name;
-      criteria[name] = desc;
+      criteria[name] = buildRichCriteria(name, fnDef);
       registry.set(name, t);
     }
   } else if (tools && typeof tools === 'object') {
-    for (const [name, val] of Object.entries(tools)) {
+    for (const [key, val] of Object.entries(tools)) {
       if (typeof val === 'string') {
-        criteria[name] = val;
-        registry.set(name, { name, description: val });
+        criteria[key] = val;
+        registry.set(key, { name: key, description: val });
       } else if (val && typeof val === 'object') {
-        const desc = val.criteria || val.description || val.summary || name;
-        criteria[name] = desc;
-        registry.set(name, { name, ...val });
+        const fnDef = (val.function && typeof val.function === 'object') ? val.function : val;
+        const name = key || fnDef.name;
+        criteria[name] = buildRichCriteria(name, fnDef);
+        registry.set(name, val.name ? val : { name, ...val });
       }
     }
   }
@@ -48,10 +66,10 @@ export class ToolPruner {
   }
 
   /**
-   * Determine engine: explicit option, or fallback to turboquant if no API key.
+   * Determine engine: explicit option, custom engine object/function, or fallback to turboquant if no API key.
    */
   getEngine(options = {}) {
-    const eng = options.engine || this.requestedEngine;
+    const eng = options.engine ?? this.requestedEngine;
     if (eng) return eng;
     return this.apiKey ? 'typesafe' : 'turboquant';
   }
@@ -61,10 +79,84 @@ export class ToolPruner {
    */
   async select(query, options = {}) {
     const engine = this.getEngine(options);
-    if (engine === 'turboquant') {
-      return this._selectTurboQuant(query, options);
+    if (typeof engine === 'function' || (engine && typeof engine === 'object' && typeof engine.choice === 'function')) {
+      return this._selectCustomEngine(engine, query, options);
+    }
+    if (engine === 'turboquant' || engine === 'turboquant-wasm') {
+      return this._selectTurboQuant(query, options, engine === 'turboquant-wasm');
     }
     return this._selectTypeSafe(query, options);
+  }
+
+  async _selectCustomEngine(engine, query, options = {}) {
+    const start = performance.now();
+    const qState = typeof query === 'string' ? query : (query.intent || query.query || query);
+    let rawRes;
+
+    if (typeof engine === 'function') {
+      rawRes = await engine(qState, this.criteria, options);
+    } else {
+      rawRes = await engine.choice({
+        state: qState,
+        question: options.instructions || 'Which specific tool is required to satisfy this intent?',
+        options: this.criteria
+      });
+    }
+
+    const latency = performance.now() - start;
+    let allCandidates = [];
+    let explicitChoice = '';
+    let explicitConfidence;
+
+    if (Array.isArray(rawRes)) {
+      allCandidates = rawRes.map(r => ({
+        name: r.name,
+        probability: r.probability ?? r.score ?? 0,
+        score: r.score,
+        tool: this.registry.get(r.name)
+      }));
+    } else if (rawRes && typeof rawRes === 'object') {
+      const probs = rawRes.probabilities || {};
+      const sorted = Object.entries(probs).sort((a, b) => b[1] - a[1]);
+      allCandidates = sorted.map(([name, p]) => ({
+        name,
+        probability: p,
+        tool: this.registry.get(name)
+      }));
+      explicitChoice = rawRes.choice || '';
+      explicitConfidence = rawRes.confidence;
+      if (allCandidates.length === 0 && explicitChoice) {
+        allCandidates = [{
+          name: explicitChoice,
+          probability: explicitConfidence ?? 1,
+          tool: this.registry.get(explicitChoice)
+        }];
+      }
+    }
+
+    const autoSelected = autoSelectCandidates(allCandidates, options);
+    const autoTools = autoSelected.map(c => c.tool || c.name);
+    const k = typeof options.topK === 'number' ? options.topK : (typeof this.defaultTopK === 'number' ? this.defaultTopK : null);
+    const topK = typeof k === 'number' ? allCandidates.slice(0, k) : allCandidates.slice(0, Math.max(3, autoSelected.length));
+
+    const emptyAllowed = Boolean(options.allowEmpty) && autoSelected.length === 0;
+    const selectedName = emptyAllowed ? '' : (explicitChoice || topK[0]?.name || '');
+    const matchedCand = allCandidates.find(c => c.name === selectedName) || topK[0];
+    const probability = matchedCand?.probability ?? 0;
+    const confidence = explicitConfidence ?? probability;
+
+    return {
+      tool: selectedName,
+      confidence,
+      probability,
+      topK,
+      autoSelected,
+      autoTools,
+      requiresGeneration: 0,
+      latency,
+      engine: engine.name || 'custom',
+      raw: rawRes
+    };
   }
 
   async _selectTypeSafe(query, options = {}) {
@@ -123,9 +215,10 @@ export class ToolPruner {
     const k = typeof options.topK === 'number' ? options.topK : (typeof this.defaultTopK === 'number' ? this.defaultTopK : null);
     const topK = typeof k === 'number' ? allCandidates.slice(0, k) : allCandidates.slice(0, Math.max(3, autoSelected.length));
 
-    const selectedName = toolAnswer?.choice || topK[0]?.name || '';
-    const probability = probs[selectedName] ?? 0;
-    const confidence = toolAnswer?.confidence ?? probability;
+    const emptyAllowed = Boolean(options.allowEmpty) && autoSelected.length === 0;
+    const selectedName = emptyAllowed ? '' : (toolAnswer?.choice || topK[0]?.name || '');
+    const probability = selectedName ? (probs[selectedName] ?? 0) : (probs[topK[0]?.name] ?? 0);
+    const confidence = selectedName ? (toolAnswer?.confidence ?? probability) : probability;
     const requiresGeneration = data.answers?.requires_generation?.probability ?? 0;
 
     return {
@@ -143,18 +236,17 @@ export class ToolPruner {
     };
   }
 
-  async _selectTurboQuant(query, options = {}) {
-    const qStr = typeof query === 'string' ? query : (query.intent || query.query || JSON.stringify(query));
+  async _selectTurboQuant(query, options = {}, preferWasm = false) {
+    const qStr = typeof query === 'string' ? query : (query?.intent || query?.query || JSON.stringify(query));
     const start = performance.now();
 
-    // Check if turboquant-search (WASM) is available
-    if (!this._tqEngine && !this._wasmEngine) {
+    if (preferWasm && !this._wasmEngine) {
       try {
         const { TurboSearch } = await import('turboquant-search');
-        const data = Array.from(this.registry.values()).map(t => ({
-          name: t.name,
-          description: t.description || '',
-          criteria: t.criteria || ''
+        const data = Array.from(this.registry.entries()).map(([name, t]) => ({
+          name,
+          description: t?.description || '',
+          criteria: this.criteria[name] || ''
         }));
         this._wasmEngine = await TurboSearch.from(data, {
           fields: ['name', 'description', 'criteria'],
@@ -162,21 +254,20 @@ export class ToolPruner {
           bits: 3
         });
       } catch {
-        // Fallback to built-in zero-dependency TurboQuant engine
-        this._tqEngine = new TurboQuantEngine();
-        const toolsMap = {};
-        for (const [name, tool] of this.registry.entries()) {
-          toolsMap[name] = tool;
-        }
-        this._tqEngine.fit(toolsMap);
+        preferWasm = false;
       }
+    }
+
+    if (!preferWasm && !this._tqEngine) {
+      this._tqEngine = new TurboQuantEngine();
+      this._tqEngine.fit(this.registry);
     }
 
     const k = typeof options.topK === 'number' ? options.topK : (typeof this.defaultTopK === 'number' ? this.defaultTopK : null);
     const poolSize = Math.max(k || 3, 10, this.registry.size);
     let allCandidates = [];
 
-    if (this._wasmEngine) {
+    if (preferWasm && this._wasmEngine) {
       const results = await this._wasmEngine.search(qStr, { topK: poolSize });
       allCandidates = results.map(r => ({
         name: r.data?.name || '',
@@ -200,8 +291,10 @@ export class ToolPruner {
     const autoTools = autoSelected.map(c => c.tool || c.name);
     const topK = typeof k === 'number' ? allCandidates.slice(0, k) : allCandidates.slice(0, Math.max(3, autoSelected.length));
 
+    const emptyAllowed = Boolean(options.allowEmpty) && autoSelected.length === 0;
+
     return {
-      tool: top1?.name || '',
+      tool: emptyAllowed ? '' : (top1?.name || ''),
       confidence: top1?.probability || 0,
       probability: top1?.probability || 0,
       topK,
@@ -209,7 +302,7 @@ export class ToolPruner {
       autoTools,
       requiresGeneration: 0,
       latency,
-      engine: 'turboquant'
+      engine: (preferWasm && this._wasmEngine) ? 'turboquant-wasm' : 'turboquant'
     };
   }
 
@@ -243,7 +336,7 @@ export class ToolPruner {
     const selection = await this.select(query, options);
     const threshold = options.threshold ?? this.threshold;
 
-    if (selection.confidence >= threshold && handlers[selection.tool]) {
+    if (selection.tool && selection.confidence >= threshold && handlers[selection.tool]) {
       return await handlers[selection.tool](query, selection);
     }
 
@@ -256,7 +349,7 @@ export class ToolPruner {
 }
 
 /**
- * Automatically select the most relevant tool candidates based on score distribution,
+ * Uncertainty-aware conformal candidate selection based on score distribution,
  * cliff / elbow drop-off, and relevance floors.
  */
 export function autoSelectCandidates(candidates, options = {}) {
@@ -264,10 +357,10 @@ export function autoSelectCandidates(candidates, options = {}) {
 
   const maxK = options.maxK ?? 5;
   const minK = options.minK ?? (options.allowEmpty ? 0 : 1);
-  const minScore = options.minScore ?? 0.12;
+  const minScore = options.minScore ?? 0.08;
   const minProb = options.minProbability ?? options.minProb ?? 0.20;
-  const relativeThreshold = options.relativeThreshold ?? 0.70;
-  const cliffRatio = options.cliffRatio ?? 0.75;
+  const relativeThreshold = options.relativeThreshold ?? 0.68;
+  const cliffRatio = options.cliffRatio ?? 0.72;
   const dominantMargin = options.dominantMargin ?? 0.14;
 
   const top1 = candidates[0];
@@ -279,6 +372,12 @@ export function autoSelectCandidates(candidates, options = {}) {
     return minK > 0 ? candidates.slice(0, minK) : [];
   }
 
+  // Widen candidate set slightly when top1 score is in the low/ambiguous zone
+  const uncertain = hasScore ? top1.score < 0.34 : top1.probability < 0.68;
+  const effRel = (options.relativeThreshold !== undefined || !uncertain) ? relativeThreshold : 0.48;
+  const effCliff = (options.cliffRatio !== undefined || !uncertain) ? cliffRatio : 0.58;
+  const effFloor = (options.minScore !== undefined || !uncertain) ? minScore : 0.05;
+
   const selected = [top1];
 
   for (let i = 1; i < Math.min(candidates.length, maxK); i++) {
@@ -286,18 +385,15 @@ export function autoSelectCandidates(candidates, options = {}) {
     const prev = candidates[i - 1];
 
     if (hasScore) {
-      if (curr.score < minScore) break;
-      // Dominant lead: top1 is strong and clearly ahead
-      if (top1.score >= 0.35 && (top1.score - curr.score) > dominantMargin) break;
-      // Relative to top1
-      if ((curr.score / Math.max(1e-6, top1.score)) < relativeThreshold) break;
-      // Cliff drop from previous
-      if (prev.score > 0 && (curr.score / prev.score) < cliffRatio) break;
+      if (curr.score < effFloor) break;
+      if (top1.score >= 0.38 && (top1.score - curr.score) > dominantMargin) break;
+      if ((curr.score / Math.max(1e-6, top1.score)) < effRel) break;
+      if (prev.score > 0 && (curr.score / prev.score) < effCliff) break;
     } else {
       if (curr.probability < minProb) break;
       if (top1.probability >= 0.70 && (top1.probability - curr.probability) > 0.20) break;
-      if ((curr.probability / Math.max(1e-6, top1.probability)) < relativeThreshold) break;
-      if (prev.probability > 0 && (curr.probability / prev.probability) < cliffRatio) break;
+      if ((curr.probability / Math.max(1e-6, top1.probability)) < effRel) break;
+      if (prev.probability > 0 && (curr.probability / prev.probability) < effCliff) break;
     }
 
     selected.push(curr);
@@ -311,7 +407,7 @@ export function autoSelectCandidates(candidates, options = {}) {
 }
 
 /**
- * Main function following Hemanth module style:
+ * Main function:
  * - One-shot: await toolPrune(query, tools, options)
  * - Configured: const pruner = toolPrune(tools, options)
  */
@@ -329,6 +425,6 @@ toolPrune.auto = function(query, tools, options) {
 };
 
 toolPrune.ToolPruner = ToolPruner;
+toolPrune.TurboQuantEngine = TurboQuantEngine;
 toolPrune.normalizeTools = normalizeTools;
 toolPrune.autoSelectCandidates = autoSelectCandidates;
-

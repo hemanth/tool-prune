@@ -1,12 +1,9 @@
 # tool-prune
 
-Calibrated tool selection and schema pruning for AI agents. Dual-engine: zero-dependency offline TurboQuant or TypeSafe System One.
+Calibrated tool selection and schema pruning for AI agents. Zero-dependency offline TurboQuant, on-device WebGPU/WASM engines, or TypeSafe System One.
 
 ```bash
 npm install tool-prune
-
-# Optional SIMD acceleration
-npm install turboquant-search
 
 # Optional: TypeSafe API key for cloud reasoning
 export TYPESAFE_API_KEY="apikey_..."
@@ -23,21 +20,21 @@ const tools = {
   webSearch: 'Search public web for documentation or articles'
 };
 
-// Works offline out of the box with TurboQuant:
 const match = await prune('what tables exist in the db?', tools);
-console.log(match.tool);   // 'runQuery'
-console.log(match.engine); // 'turboquant'
+console.log(match.tool);       // 'runQuery'
+console.log(match.confidence); // 0.815
+console.log(match.engine);     // 'turboquant'
 ```
 
-`prune()` narrows schemas offline via TurboQuant by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is present. That's the whole API.
+`prune()` runs offline via 4-bit PolarQuant + 1024-bit QJL TurboQuant (`0.18 ms`, 100% BFCL v3 Top-1 and 100-Tool Top-5 recall) by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is set. Accepts plain dicts, MCP `inputSchema`, Anthropic `input_schema`, and OpenAI `{ type: 'function', function }` tool arrays.
 
 ## Schema pruning for LLMs
 
 ```js
-const router = prune(tools);
+const router = prune(mcpTools);
 
-// Auto-selects candidate schemas dynamically (or pass { k: 5 }):
-const topTools = await router.filter(userPrompt);
+// Conformal auto-selection (or pass { k: 5 }):
+const topTools = await router.filter(userPrompt, { allowEmpty: true });
 
 const response = await llm.chat({
   tools: topTools,
@@ -45,7 +42,7 @@ const response = await llm.chat({
 });
 ```
 
-Cuts prompt tokens by up to 92% and eliminates context confusion without losing tools.
+Cuts prompt schema tokens by up to 98% while preserving your exact SDK tool objects.
 
 ## Fast-path direct dispatch
 
@@ -53,21 +50,21 @@ Cuts prompt tokens by up to 92% and eliminates context confusion without losing 
 const result = await router.dispatch('read ./package.json', {
   readFile: (query) => fs.readFileSync('package.json', 'utf8'),
   runQuery: (query) => db.query(query),
-  fallback: (query, match) => callLLM(query)
+  fallback: (query, match) => callLLM(query, match.autoTools)
 });
 ```
 
-Runs deterministic handlers in under 160ms with zero token cost.
-
-## Dual engine
+## Pluggable engines
 
 ```js
 const localMatch = await prune(query, tools, { engine: 'turboquant' });
 const cloudMatch = await prune(query, tools, { engine: 'typesafe', apiKey: '...' });
+const onDevice   = await prune(query, tools, { engine: decisionEngine });
 ```
 
-- **turboquant**: 100% offline, zero network, zero dependencies. Uses `turboquant-search` (WASM SIMD) if installed, with built-in FWHT fallback.
-- **typesafe**: Cloud System One reasoning (Jev). 100% Top-1 accuracy on subtle distractors with calibrated probabilities.
+- **turboquant**: 100% offline, zero network, zero dependencies (`0.18 ms` per 100-tool query). Pass `engine: 'turboquant-wasm'` to opt into `turboquant-search` WASM if installed.
+- **custom engine**: Any object with `choice({ state, question, options })` (such as `webml-kit`) or function `(query, criteria) => candidates`.
+- **typesafe**: Cloud System One reasoning (Jev) with calibrated probabilities.
 
 ## Demo
 

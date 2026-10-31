@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>tool-prune | Calibrated Tool Selection & Schema Pruning for AI Agents</title>
-  <meta name="description" content="Stop dumping 100 MCP tool schemas into LLM prompts. Prune to the top candidates in 0.4ms offline, or direct-dispatch with calibrated confidence." />
+  <meta name="description" content="Stop dumping 100 MCP tool schemas into LLM prompts. Prune to the top candidates in 0.2ms offline, or direct-dispatch with calibrated confidence." />
   <meta name="theme-color" content="#fbfaf7" />
 
   <!-- Open Graph -->
@@ -225,7 +225,7 @@
 
         <div class="hidden sm:inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-mono font-medium bg-sage-100 text-sage-800 border border-sage-200">
           <span class="w-1.5 h-1.5 rounded-full bg-sage-700"></span>
-          <span>v0.2.0</span>
+          <span>v0.4.0</span>
         </div>
       </div>
 
@@ -265,7 +265,7 @@
 
       <!-- Subtext: max 20 words -->
       <p class="mt-4 text-lg text-ink-700 leading-relaxed max-w-2xl font-normal">
-        Prune 100 tool schemas to top candidates in 0.4ms offline, or direct-dispatch with calibrated confidence.
+        Prune 100 tool schemas to top candidates in 0.2ms offline, or direct-dispatch with calibrated confidence.
       </p>
 
       <!-- Primary Action & Install Strip -->
@@ -297,15 +297,15 @@
       <div class="mt-8 flex flex-wrap items-center gap-2 pt-2 border-t border-ink-200/60">
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sage-100 text-sage-800 border border-sage-200">
           <span class="w-1.5 h-1.5 rounded-full bg-sage-700"></span>
-          0.4ms offline TurboQuant
+          0.18ms offline TurboQuant
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-peach-100 text-peach-800 border border-peach-200">
           <span class="w-1.5 h-1.5 rounded-full bg-peach-700"></span>
-          -92% prompt tokens
+          -97% prompt tokens
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-lavender-100 text-lavender-800 border border-lavender-200">
           <span class="w-1.5 h-1.5 rounded-full bg-lavender-700"></span>
-          100% BFCL Top-1 (TypeSafe)
+          100% BFCL v3 Top-1
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sky-100 text-sky-800 border border-sky-200">
           <span class="w-1.5 h-1.5 rounded-full bg-sky-700"></span>
@@ -425,7 +425,7 @@
         <div class="flex items-center gap-2">
           <label for="engine-selector" class="font-mono text-ink-700 font-medium text-xs">Engine:</label>
           <select id="engine-selector" class="px-2.5 py-1 rounded-lg bg-white border border-ink-200 text-xs font-mono font-medium text-ink-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-peach-300">
-            <option value="turboquant" selected>TurboQuant (0.4ms zero-dep heuristic)</option>
+            <option value="turboquant" selected>TurboQuant (0.2ms zero-dep PolarQuant)</option>
             <option value="webml-kit">webml-kit / SemIf WebGPU (Qwen3.5 4B / MiniCPM5 2B / Qwen3 0.6B)</option>
             <option value="typesafe">TypeSafe System One (Cloud API)</option>
           </select>
@@ -437,7 +437,7 @@
             </select>
           </div>
           <span id="engine-status-badge" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-mono text-[11px] bg-sage-100 text-sage-800 border border-sage-200">
-            0.4ms zero-dep heuristic
+            0.2ms zero-dep PolarQuant
           </span>
         </div>
       </div>
@@ -718,35 +718,35 @@
             </tr>
             <tr class="hover:bg-canvas transition-colors">
               <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full bg-sage-700"></span>
-                TurboQuant (WASM)
-              </td>
-              <td class="py-4 px-4 text-ink-700">JS WASM (turboquant-search)</td>
-              <td class="py-4 px-4 text-ink-900">86.7%</td>
-              <td class="py-4 px-4 text-ink-900">85.0%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">16 ms</td>
-              <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
-            </tr>
-            <tr class="hover:bg-canvas transition-colors">
-              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-sky-700"></span>
                 TurboQuant (Python)
               </td>
               <td class="py-4 px-4 text-ink-700">Rust SIMD (turbovec)</td>
-              <td class="py-4 px-4 text-ink-900">85.0%</td>
-              <td class="py-4 px-4 text-ink-900">82.5%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.018 ms</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.041 ms</td>
+              <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-sage-700"></span>
+                TurboQuant (JS)
+              </td>
+              <td class="py-4 px-4 text-ink-700">Pure JS (built-in)</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.18 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
               <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-butter-700"></span>
-                TurboQuant (Pure JS)
+                TurboQuant (Python)
               </td>
-              <td class="py-4 px-4 text-ink-700">Pure JS / Python Fallback</td>
-              <td class="py-4 px-4 text-ink-900">86.7%</td>
-              <td class="py-4 px-4 text-ink-900">77.5%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.14 ms</td>
+              <td class="py-4 px-4 text-ink-700">Pure Python (stdlib)</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">1.35 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors text-ink-500">
@@ -757,7 +757,7 @@
               <td class="py-4 px-4 text-ink-500">Lexical Inverted Index</td>
               <td class="py-4 px-4 text-ink-700">88.3%</td>
               <td class="py-4 px-4 text-ink-700">95.0%</td>
-              <td class="py-4 px-4 text-ink-700">0.025 ms</td>
+              <td class="py-4 px-4 text-ink-700">1.30 ms</td>
               <td class="py-4 px-4 text-ink-500">Offline</td>
             </tr>
           </tbody>
@@ -834,7 +834,7 @@
               <td class="py-4 px-4 text-ink-700">979 ms</td>
               <td class="py-4 px-4 text-ink-700">436 tokens</td>
               <td class="py-4 px-4 text-ink-700">2 turns</td>
-              <td class="py-4 px-4 text-ink-700">Lexical Retrieval Retrieval Loss</td>
+              <td class="py-4 px-4 text-ink-700">Lexical Retrieval Loss</td>
             </tr>
             <tr class="bg-rose-50/30 hover:bg-rose-50/60 transition-colors">
               <td class="py-4 px-4 sm:px-6 font-semibold text-rose-900 flex items-center gap-2">
@@ -882,10 +882,10 @@
             1
           </div>
           <h3 class="text-lg font-bold text-ink-900 mb-2">
-            FWHT Vector Projection
+            Corpus-IDF & FWHT Projection
           </h3>
           <p class="text-xs text-ink-600 leading-relaxed font-normal">
-            Tool criteria and query tokens are hashed and rotated using a diagonal Rademacher matrix and the Fast Walsh-Hadamard Transform in O(d log d), eliminating data-dependent training overhead.
+            Tool schemas (MCP, Anthropic, OpenAI) and query tokens are weighted by Corpus-IDF Count-Sketch and rotated with a Fast Walsh-Hadamard Transform in O(d log d), with zero training overhead.
           </p>
         </div>
         <div class="mt-6 pt-4 border-t border-ink-100 font-mono text-[11px] text-sage-800">
@@ -900,10 +900,10 @@
             2
           </div>
           <h3 class="text-lg font-bold text-ink-900 mb-2">
-            PolarQuant & QJL Residual
+            4-Bit PolarQuant & QJL Residual
           </h3>
           <p class="text-xs text-ink-600 leading-relaxed font-normal">
-            Vectors are quantized to 2-bit discrete intervals, while residual error vectors are captured with 1-bit Johnson-Lindenstrauss random signs. Preserves high cosine fidelity with tiny memory footprints.
+            Vectors are quantized to 4-bit symmetric PolarQuant intervals, while residual error vectors are captured with 1024-bit SRHT Johnson-Lindenstrauss random signs via SWAR popcount.
           </p>
         </div>
         <div class="mt-6 pt-4 border-t border-ink-100 font-mono text-[11px] text-peach-800">
@@ -918,14 +918,14 @@
             3
           </div>
           <h3 class="text-lg font-bold text-ink-900 mb-2">
-            Fast-Path Direct Dispatch
+            Conformal Prune & Direct Dispatch
           </h3>
           <p class="text-xs text-ink-600 leading-relaxed font-normal">
-            When confidence clears your threshold, dispatch deterministic tool handlers directly in under 160ms. If ambiguous, forward only top-5 candidates to the LLM prompt.
+            When confidence clears your threshold, dispatch deterministic tool handlers directly in under 1ms offline. When ambiguous, conformal scoring forwards only top candidate schemas to your LLM.
           </p>
         </div>
         <div class="mt-6 pt-4 border-t border-ink-100 font-mono text-[11px] text-sky-800">
-          Save 92% tokens and LLM cost
+          Save up to 98% schema tokens
         </div>
       </div>
     </div>

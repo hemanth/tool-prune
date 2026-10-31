@@ -1,6 +1,6 @@
 {
   "name": "tool-prune",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Fast, calibrated tool selection and schema pruning for AI agents using TypeSafe System One and TurboQuant vector search.",
   "type": "module",
   "main": "index.js",
@@ -40,8 +40,13 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "optionalDependencies": {
+  "peerDependencies": {
     "turboquant-search": "^0.1.1"
+  },
+  "peerDependenciesMeta": {
+    "turboquant-search": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",
