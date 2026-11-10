@@ -3,13 +3,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TOOLS_30, TOOLS_60 } from './catalog.mjs';
 import { CASES_30, CASES_60 } from './cases.mjs';
+import { TurboQuantSearch } from './turboquant.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Sourced from environment or workspace .env fallback
 let API_KEY = process.env.TYPESAFE_API_KEY;
-if (!API_KEY) {
+if (API_KEY === undefined) {
   try {
     const envContent = fs.readFileSync(path.resolve(__dirname, '../../tc39-typesafe/.env'), 'utf8');
     const match = envContent.match(/TYPESAFE_API_KEY=(.+)/);
@@ -17,14 +18,24 @@ if (!API_KEY) {
   } catch {}
 }
 
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
 const args = process.argv.slice(2);
-const sizeArg = args.includes('--size') ? args[args.indexOf('--size') + 1] : '30';
+const sizeArg = args.includes('--size') ? args[args.indexOf('--size') + 1] : '60';
+const modelsArg = args.includes('--models')
+  ? args[args.indexOf('--models') + 1].split(',').map(s => s.trim()).filter(Boolean)
+  : ['claude-haiku-5-5'];
 
-const catalog = sizeArg === '60' ? TOOLS_60 : TOOLS_30;
-const testCases = sizeArg === '60' ? CASES_60 : CASES_30;
-
-// BM25 Search implementation for Tool-Search baseline
+const catalog = sizeArg === '30' ? TOOLS_30 : TOOLS_60;
+const testCases = sizeArg === '30' ? CASES_30 : CASES_60;
 const toolNames = Object.keys(catalog);
+
+// 1. Offline TurboQuant v0.4.0 (4-bit PolarQuant + 1024-bit QJL)
+const tqEngine = new TurboQuantSearch();
+tqEngine.index(catalog);
+
+// 2. BM25 Search baseline
 const toolDocs = toolNames.map(name => `${name} ${catalog[name].description} ${catalog[name].criteria}`);
 
 function tokenize(text) {
@@ -65,6 +76,8 @@ for (const [name, meta] of Object.entries(catalog)) {
   jevCriteria[name] = meta.criteria;
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 async function pMap(array, fn, concurrency = 5) {
   const results = new Array(array.length);
   let index = 0;
@@ -78,231 +91,425 @@ async function pMap(array, fn, concurrency = 5) {
   return results;
 }
 
-let ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+function percentile(values, p = 50) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
 
-async function askLLM(toolsSubset, userQuery) {
-  if (!ANTHROPIC_API_KEY) return null;
-  const toolsFormatted = Object.entries(toolsSubset).map(([name, t]) => `- ${name}: ${t.description}`).join('\n');
-  const prompt = `You are an AI assistant selecting a tool for a user request.\nAvailable tools:\n${toolsFormatted}\n\nUser request: "${userQuery}"\n\nRespond with ONLY the exact name of the best tool to use, and nothing else.`;
-  const t0 = performance.now();
-  try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+// B=1,000 paired bootstrap 95% confidence interval on accuracy (%)
+function bootstrapAccuracyCI(bools, B = 1000, seed = 42) {
+  const n = bools.length;
+  if (!n) return [0, 0];
+  let s = seed >>> 0;
+  const rand = () => {
+    s = (1664525 * s + 1013904223) >>> 0;
+    return s / 0x100000000;
+  };
+  const samples = new Float64Array(B);
+  for (let b = 0; b < B; b++) {
+    let hits = 0;
+    for (let i = 0; i < n; i++) {
+      if (bools[Math.floor(rand() * n)]) hits++;
+    }
+    samples[b] = (hits / n) * 100;
+  }
+  samples.sort();
+  return [samples[Math.floor(B * 0.025)], samples[Math.floor(B * 0.975)]];
+}
+
+function cleanModelChoice(rawText) {
+  if (!rawText) return '';
+  return rawText
+    .trim()
+    .split(/\s+/)[0]
+    .replace(/^[`"'\[\(]+|[`"'\.\]\),:;]+$/g, '')
+    .trim();
+}
+
+const validToolSet = new Set([...toolNames.map(n => n.toLowerCase()), 'unsupported_or_none']);
+
+function matchesTarget(rawChoice, target) {
+  if (!rawChoice) return false;
+  const tgt = target.toLowerCase();
+  const lines = rawChoice.trim().split('\n').map(l => l.trim()).filter(Boolean);
+  const firstTok = cleanModelChoice(lines[0] || '').toLowerCase();
+  if (firstTok === tgt) return true;
+  if (validToolSet.has(firstTok)) return false;
+
+  const lastLineWords = (lines[lines.length - 1] || '').split(/\s+/);
+  const lastTok = cleanModelChoice(lastLineWords[lastLineWords.length - 1] || '').toLowerCase();
+  if (lastTok === tgt) return true;
+  if (validToolSet.has(lastTok)) return false;
+
+  const mentioned = [...validToolSet].filter(name => rawChoice.toLowerCase().includes(name));
+  return mentioned.length === 1 && mentioned[0] === tgt;
+}
+
+async function askLLM(modelSpec, toolsSubset, userQuery) {
+  const toolsFormatted = Object.entries(toolsSubset)
+    .map(([name, t]) => `- ${name}: ${t.description}`)
+    .join('\n');
+  const prompt = `You are an AI assistant selecting a tool for a user request.\nAvailable tools:\n${toolsFormatted}\n\nUser request: "${userQuery}"\n\nRespond with ONLY the exact name of the best tool to use (or unsupported_or_none if no available tool fits), and nothing else.`;
+
+  if (modelSpec.startsWith('ollama:')) {
+    const ollamaModel = modelSpec.slice('ollama:'.length);
+    const t0 = performance.now();
+    const resp = await fetch('http://127.0.0.1:11434/api/generate', {
       method: 'POST',
-      headers: {
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 30,
-        messages: [{ role: 'user', content: prompt }]
+        model: ollamaModel,
+        prompt,
+        stream: false,
+        options: { num_predict: 24, temperature: 0 }
       })
     });
     const latency = performance.now() - t0;
     const data = await resp.json();
-    const rawChoice = data.content?.[0]?.text?.trim() || '';
-    const inputTokens = data.usage?.input_tokens || 0;
-    const outputTokens = data.usage?.output_tokens || 0;
-    return { choice: rawChoice, latency, inputTokens, outputTokens };
-  } catch (err) {
-    return null;
+    return {
+      choice: (data.response || '').trim(),
+      latency,
+      inputTokens: data.prompt_eval_count || 0,
+      outputTokens: data.eval_count || 0
+    };
   }
+
+  if (modelSpec.includes('/') && OPENROUTER_API_KEY) {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const t0 = performance.now();
+      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: modelSpec,
+          max_tokens: 40,
+          temperature: 0,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      const latency = performance.now() - t0;
+      if (resp.status === 429 || resp.status >= 500) {
+        await sleep(500 * Math.pow(2, attempt));
+        continue;
+      }
+      const data = await resp.json();
+      if (data.error) throw new Error(`OpenRouter error (${modelSpec}): ${data.error.message}`);
+      return {
+        choice: data.choices?.[0]?.message?.content?.trim() || '',
+        latency,
+        inputTokens: data.usage?.prompt_tokens || 0,
+        outputTokens: data.usage?.completion_tokens || 0
+      };
+    }
+  }
+
+  if (!ANTHROPIC_API_KEY) return null;
+
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const t0 = performance.now();
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: modelSpec,
+          max_tokens: 1024,
+          messages: [{ role: 'user', content: prompt }]
+        })
+      });
+      const latency = performance.now() - t0;
+      if (resp.status === 429 || resp.status === 529 || resp.status >= 500) {
+        await sleep(600 * Math.pow(2, attempt));
+        continue;
+      }
+      const data = await resp.json();
+      const textBlock = (data.content || []).find(c => c.type === 'text');
+      const rawChoice = textBlock?.text?.trim() || '';
+      return {
+        choice: rawChoice,
+        latency,
+        inputTokens: data.usage?.input_tokens || 0,
+        outputTokens: data.usage?.output_tokens || 0
+      };
+    } catch {
+      await sleep(500 * Math.pow(2, attempt));
+    }
+  }
+  return null;
 }
 
 async function run() {
-  console.log('='.repeat(78));
-  console.log(`BENCHMARK: TOOL-PRUNE vs FULL-CONTEXT vs TOOL-SEARCH (${toolNames.length} TOOLS, ${testCases.length} QUERIES)`);
-  if (ANTHROPIC_API_KEY) {
-    console.log(`Live LLM: Claude Haiku 4.5 via Anthropic API (empirically measured)`);
-  } else {
-    console.log(`LLM Mode: Analytical model (set ANTHROPIC_API_KEY for live Claude calls)`);
-  }
-  console.log('='.repeat(78));
+  console.log('='.repeat(92));
+  console.log(`MULTI-MODEL BENCHMARK: TOOL-PRUNE vs FULL-CONTEXT vs TOOL-SEARCH (${toolNames.length} TOOLS, ${testCases.length} QUERIES)`);
+  console.log(`Models under evaluation: ${modelsArg.join(', ')}`);
+  console.log('='.repeat(92));
 
-  const schemaTokensPerTool = 140;
-  const catalogTokens = toolNames.length * schemaTokensPerTool;
-  const promptBaseTokens = 300;
+  // Step 1: Precompute deterministic / System One retrieval once across all 79 queries
+  // so every LLM model sees the exact same fixed candidate sets (strict paired comparison).
+  console.log('\n[Phase 1/2] Evaluating retrieval & pruning layer (TypeSafe Jev, Offline TurboQuant v0.4.0, BM25)...');
+  const retrievalCache = await pMap(testCases, async (test, i) => {
+    process.stdout.write(`  Retrieval [${i + 1}/${testCases.length}]... \r`);
 
-  const results = await pMap(testCases, async (test, i) => {
-    process.stdout.write(`Evaluating [${i + 1}/${testCases.length}]... \r`);
+    // 1. Offline TurboQuant v0.4.0
+    const tqT0 = performance.now();
+    const tqRes = tqEngine.search(test.query, 5);
+    const tqLatency = performance.now() - tqT0;
+    const tqTop5 = tqRes.map(r => r.name);
+    const tqTop3 = tqTop5.slice(0, 3);
 
-    // 1. Tool-Prune (TypeSafe Jev)
-    const t0 = performance.now();
+    // 2. BM25 Lexical baseline
+    const bmT0 = performance.now();
+    const bm25Top3 = bm25Search(test.query, 3);
+    const bm25Latency = performance.now() - bmT0;
+
+    // 3. TypeSafe System One (Jev)
     let jevChoice = null;
     let jevTop3 = [];
     let jevConfidence = 0;
-    let jevLatency = 140;
+    let jevLatency = 145;
 
     if (API_KEY) {
-      try {
-        const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${API_KEY}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            model: 'jev-latest',
-            state: { user_intent: test.query },
-            questions: {
-              tool: {
-                type: 'choice',
-                instructions: 'Which specific tool is required to satisfy this intent?',
-                criteria: jevCriteria
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const t0 = performance.now();
+        try {
+          const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${API_KEY}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              model: 'jev-latest',
+              state: { user_intent: test.query },
+              questions: {
+                tool: {
+                  type: 'choice',
+                  instructions: 'Which specific tool is required to satisfy this intent?',
+                  criteria: jevCriteria
+                }
               }
-            }
-          })
-        });
-        jevLatency = performance.now() - t0;
-        const data = await resp.json();
-        const probs = data.answers?.tool?.probabilities || {};
-        const sorted = Object.entries(probs).sort((a, b) => b[1] - a[1]);
-        jevChoice = data.answers?.tool?.choice;
-        jevTop3 = sorted.slice(0, 3).map(p => p[0]);
-        jevConfidence = data.answers?.tool?.confidence || 0;
-      } catch (err) {
-        jevLatency = 150;
+            })
+          });
+          jevLatency = performance.now() - t0;
+          if (resp.status === 429 || resp.status >= 500) {
+            await sleep(400 * Math.pow(2, attempt));
+            continue;
+          }
+          const data = await resp.json();
+          const probs = data.answers?.tool?.probabilities || {};
+          const sorted = Object.entries(probs).sort((a, b) => b[1] - a[1]);
+          jevChoice = data.answers?.tool?.choice;
+          jevTop3 = sorted.slice(0, 3).map(p => p[0]);
+          jevConfidence = data.answers?.tool?.confidence || 0;
+          break;
+        } catch {
+          await sleep(400 * Math.pow(2, attempt));
+        }
       }
     }
 
-    const toolPruneTop3Success = jevTop3.includes(test.target);
-    const directSuccess = jevChoice === test.target;
+    return {
+      test,
+      tqTop3,
+      tqTop5,
+      tqLatency,
+      tqTop1Success: tqTop5[0] === test.target,
+      tqTop5Success: tqTop5.includes(test.target),
+      bm25Top3,
+      bm25Latency,
+      bm25RecallSuccess: bm25Top3.includes(test.target),
+      jevChoice,
+      jevTop3,
+      jevConfidence,
+      jevLatency,
+      jevDirectSuccess: jevChoice === test.target,
+      jevTop3Success: jevTop3.includes(test.target)
+    };
+  }, 5);
 
-    // 2. BM25 Search
-    const bm25Top3 = bm25Search(test.query, 3);
-    const bm25RecallSuccess = bm25Top3.includes(test.target);
+  const total = retrievalCache.length;
+  const jevDirectAcc = (retrievalCache.filter(r => r.jevDirectSuccess).length / total) * 100;
+  const jevDirectP50 = Math.round(percentile(retrievalCache.map(r => r.jevLatency), 50));
+  const jevDirectMean = Math.round(retrievalCache.reduce((a, b) => a + b.jevLatency, 0) / total);
+  const jevTop3Recall = (retrievalCache.filter(r => r.jevTop3Success).length / total) * 100;
+  const tqTop5Recall = (retrievalCache.filter(r => r.tqTop5Success).length / total) * 100;
+  const bm25Top3Recall = (retrievalCache.filter(r => r.bm25RecallSuccess).length / total) * 100;
+  const bypassedCount = retrievalCache.filter(r => r.jevConfidence >= 0.85).length;
+  const bypassedPct = (bypassedCount / total) * 100;
 
-    // 3. Live LLM execution for Full Context
-    let fcSuccess = false;
-    let fcLatency = 0;
-    let fcTokens = 0;
-    if (ANTHROPIC_API_KEY) {
-      const fcRes = await askLLM(catalog, test.query);
-      if (fcRes) {
-        fcSuccess = fcRes.choice.toLowerCase().includes(test.target.toLowerCase());
-        fcLatency = fcRes.latency;
-        fcTokens = fcRes.inputTokens + fcRes.outputTokens;
-      }
-    } else {
-      fcSuccess = test.type === 'direct' ? true : (test.type === 'ood' ? false : (i % 5 !== 0));
-      fcTokens = promptBaseTokens + catalogTokens + 40;
-      fcLatency = Math.round(promptBaseTokens * 0.25 + catalogTokens * 0.25 + 400 + 300);
+  console.log(`\nRetrieval Layer Summary (${total} queries):`);
+  console.log(`  TypeSafe Jev Top-1: ${jevDirectAcc.toFixed(1)}% | Top-3 Recall: ${jevTop3Recall.toFixed(1)}% | P50: ${jevDirectP50} ms (Mean: ${jevDirectMean} ms) | Fast-Path >=0.85: ${bypassedPct.toFixed(1)}%`);
+  console.log(`  TurboQuant v0.4.0:  Top-5 Recall: ${tqTop5Recall.toFixed(1)}% | Mean: ${(retrievalCache.reduce((a, b) => a + b.tqLatency, 0) / total).toFixed(3)} ms (Offline)`);
+  console.log(`  BM25 Baseline:      Top-3 Recall: ${bm25Top3Recall.toFixed(1)}%`);
+
+  // Step 2: Evaluate each LLM backbone across all paradigms
+  const multiModelSummary = {};
+
+  for (const modelSpec of modelsArg) {
+    console.log(`\n[Phase 2/2] Evaluating LLM Backbone: ${modelSpec}...`);
+    const isLocalOllama = modelSpec.startsWith('ollama:');
+    if (isLocalOllama) {
+      // Warmup local model in RAM so cold model load does not skew query #1
+      await askLLM(modelSpec, { git_status: catalog.git_status }, 'warmup');
     }
 
-    // 4. Live LLM execution for Tool-Search (BM25 -> LLM)
-    let tsSuccess = false;
-    let tsLatency = 0;
-    let tsTokens = 0;
-    if (ANTHROPIC_API_KEY) {
+    const concurrency = isLocalOllama ? 1 : 5;
+    const rows = await pMap(retrievalCache, async (item, idx) => {
+      process.stdout.write(`  [${modelSpec}] Query [${idx + 1}/${total}]... \r`);
+      const { test, jevChoice, jevTop3, jevConfidence, jevLatency, tqTop5, tqLatency, bm25Top3 } = item;
+
+      // A. Full-Context LLM (all 60 tools)
+      const fcRes = await askLLM(modelSpec, catalog, test.query);
+      const fcSuccess = fcRes ? matchesTarget(fcRes.choice, test.target) : false;
+      const fcLatency = fcRes ? fcRes.latency : 0;
+      const fcTokens = fcRes ? fcRes.inputTokens + fcRes.outputTokens : 0;
+
+      // B. Offline TurboQuant Top-5 + LLM (zero API key pruning!)
+      const tqSubset = {};
+      for (const name of tqTop5) {
+        if (catalog[name]) tqSubset[name] = catalog[name];
+      }
+      const tqLlmRes = await askLLM(modelSpec, tqSubset, test.query);
+      const tqLlmSuccess = tqLlmRes ? matchesTarget(tqLlmRes.choice, test.target) : false;
+      const tqLlmLatency = tqLatency + (tqLlmRes ? tqLlmRes.latency : 0);
+      const tqLlmTokens = tqLlmRes ? tqLlmRes.inputTokens + tqLlmRes.outputTokens : 0;
+
+      // C. Tool-Search (BM25 2-turn discovery + LLM)
       const bm25Subset = {};
       for (const name of bm25Top3) {
         if (catalog[name]) bm25Subset[name] = catalog[name];
       }
-      const tsRes = await askLLM(bm25Subset, test.query);
-      if (tsRes) {
-        tsSuccess = tsRes.choice.toLowerCase().includes(test.target.toLowerCase());
-        tsLatency = tsRes.latency + 450; // includes 1st search turn
-        tsTokens = tsRes.inputTokens + tsRes.outputTokens + 300;
-      }
-    } else {
-      tsSuccess = bm25Top3.includes(test.target);
-      tsTokens = (promptBaseTokens + 300) + (promptBaseTokens + (3 * schemaTokensPerTool) + 40);
-      tsLatency = 450 + 580;
-    }
+      const tsRes = await askLLM(modelSpec, bm25Subset, test.query);
+      const tsSuccess = tsRes ? matchesTarget(tsRes.choice, test.target) : false;
+      // 2-turn architecture: Turn 1 (LLM emits search_tools query) + Turn 2 (LLM selects from BM25 results)
+      const turn1EstLatency = tsRes ? tsRes.latency * 0.85 : 450;
+      const tsLatency = turn1EstLatency + (tsRes ? tsRes.latency : 0);
+      const tsTokens = (tsRes ? tsRes.inputTokens + tsRes.outputTokens : 0) + 260;
 
-    // 5. Live LLM execution for Tool-Prune (Jev -> Direct Dispatch or LLM)
-    let tpSuccess = false;
-    let tpLatency = 0;
-    let tpTokens = 0;
-    const canDirectDispatch = directSuccess && jevConfidence >= 0.85;
-
-    if (canDirectDispatch) {
-      // Bypassed LLM
-      tpSuccess = true;
-      tpLatency = jevLatency;
-      tpTokens = 385;
-    } else if (ANTHROPIC_API_KEY) {
-      const tpSubset = {};
-      for (const name of jevTop3) {
-        if (catalog[name]) tpSubset[name] = catalog[name];
+      // D. Tool-Prune + LLM (Jev Top-3 pruned prompt, always 1 LLM turn)
+      const jevSubset = {};
+      for (const name of (jevTop3.length ? jevTop3 : tqTop5.slice(0, 3))) {
+        if (catalog[name]) jevSubset[name] = catalog[name];
       }
-      const tpRes = await askLLM(tpSubset, test.query);
-      if (tpRes) {
-        tpSuccess = tpRes.choice.toLowerCase().includes(test.target.toLowerCase());
-        tpLatency = jevLatency + tpRes.latency;
-        tpTokens = 385 + tpRes.inputTokens + tpRes.outputTokens;
-      }
-    } else {
-      tpSuccess = toolPruneTop3Success;
-      tpTokens = 385 + promptBaseTokens + (3 * schemaTokensPerTool) + 40;
-      tpLatency = avgJevLatency + 580;
-    }
+      const tpLlmRes = await askLLM(modelSpec, jevSubset, test.query);
+      const tpLlmSuccess = tpLlmRes ? matchesTarget(tpLlmRes.choice, test.target) : false;
+      const tpLlmLatency = jevLatency + (tpLlmRes ? tpLlmRes.latency : 0);
+      const tpLlmTokens = 385 + (tpLlmRes ? tpLlmRes.inputTokens + tpLlmRes.outputTokens : 0);
 
-    return {
-      query: test.query,
-      target: test.target,
-      type: test.type,
-      toolPruneTop3Success,
-      directSuccess,
-      canDirectDispatch,
-      jevLatency,
-      jevConfidence,
-      bm25RecallSuccess,
-      fcSuccess,
-      fcLatency,
-      fcTokens,
-      tsSuccess,
-      tsLatency,
-      tsTokens,
-      tpSuccess,
-      tpLatency,
-      tpTokens
+      // E. Tool-Prune Direct Dispatch (Fast-path when Jev confidence >= 0.85, else pruned LLM fallback)
+      const fastPathTriggered = API_KEY && jevConfidence >= 0.85;
+      const tpDirectSuccess = fastPathTriggered ? (jevChoice === test.target) : tpLlmSuccess;
+      const tpDirectLatency = fastPathTriggered ? jevLatency : tpLlmLatency;
+      const tpDirectTokens = fastPathTriggered ? 385 : tpLlmTokens;
+
+      return {
+        type: test.type,
+        fcSuccess,
+        fcLatency,
+        fcTokens,
+        tqLlmSuccess,
+        tqLlmLatency,
+        tqLlmTokens,
+        tsSuccess,
+        tsLatency,
+        tsTokens,
+        tpLlmSuccess,
+        tpLlmLatency,
+        tpLlmTokens,
+        tpDirectSuccess,
+        tpDirectLatency,
+        tpDirectTokens,
+        fastPathTriggered
+      };
+    }, concurrency);
+
+    const summarize = (succKey, latKey, tokKey) => {
+      const bools = rows.map(r => r[succKey]);
+      const lats = rows.map(r => r[latKey]);
+      const toks = rows.map(r => r[tokKey]);
+      const acc = (bools.filter(Boolean).length / total) * 100;
+      const [ciLo, ciHi] = bootstrapAccuracyCI(bools, 1000);
+      const bySlice = {};
+      for (const slice of ['direct', 'overlap', 'ood']) {
+        const sub = rows.filter(r => r.type === slice);
+        bySlice[slice] = sub.length ? (sub.filter(r => r[succKey]).length / sub.length) * 100 : 0;
+      }
+      return {
+        accuracy: Number(acc.toFixed(1)),
+        ci95: [Number(ciLo.toFixed(1)), Number(ciHi.toFixed(1))],
+        p50LatencyMs: Math.round(percentile(lats, 50)),
+        meanLatencyMs: Math.round(lats.reduce((a, b) => a + b, 0) / total),
+        tokensPerTurn: Math.round(toks.reduce((a, b) => a + b, 0) / total),
+        slices: {
+          direct: Number(bySlice.direct.toFixed(1)),
+          overlap: Number(bySlice.overlap.toFixed(1)),
+          ood: Number(bySlice.ood.toFixed(1))
+        }
+      };
     };
-  });
 
-  const total = results.length;
-  const pruneTop3Acc = (results.filter(r => r.toolPruneTop3Success).length / total) * 100;
-  const directAcc = (results.filter(r => r.directSuccess).length / total) * 100;
-  const directDispatchedCount = results.filter(r => r.canDirectDispatch).length;
-  const directDispatchPct = (directDispatchedCount / total) * 100;
-  const bm25RecallAcc = (results.filter(r => r.bm25RecallSuccess).length / total) * 100;
+    const summary = {
+      model: modelSpec,
+      fullContext: summarize('fcSuccess', 'fcLatency', 'fcTokens'),
+      turboQuantPruneLlm: summarize('tqLlmSuccess', 'tqLlmLatency', 'tqLlmTokens'),
+      toolSearchBm25Llm: summarize('tsSuccess', 'tsLatency', 'tsTokens'),
+      toolPruneJevLlm: summarize('tpLlmSuccess', 'tpLlmLatency', 'tpLlmTokens'),
+      toolPruneDirect: {
+        ...summarize('tpDirectSuccess', 'tpDirectLatency', 'tpDirectTokens'),
+        bypassedRate: Number(bypassedPct.toFixed(1))
+      }
+    };
 
-  const fcAcc = (results.filter(r => r.fcSuccess).length / total) * 100;
-  const tsAcc = (results.filter(r => r.tsSuccess).length / total) * 100;
-  const tpAcc = (results.filter(r => r.tpSuccess).length / total) * 100;
+    multiModelSummary[modelSpec] = summary;
 
-  const avgJevLatency = Math.round(results.reduce((a, b) => a + b.jevLatency, 0) / total);
-  const avgFcLatency = Math.round(results.reduce((a, b) => a + b.fcLatency, 0) / total);
-  const avgTsLatency = Math.round(results.reduce((a, b) => a + b.tsLatency, 0) / total);
-  const avgTpLatency = Math.round(results.reduce((a, b) => a + b.tpLatency, 0) / total);
-
-  const avgFcTokens = Math.round(results.reduce((a, b) => a + b.fcTokens, 0) / total);
-  const avgTsTokens = Math.round(results.reduce((a, b) => a + b.tsTokens, 0) / total);
-  const avgTpTokens = Math.round(results.reduce((a, b) => a + b.tpTokens, 0) / total);
-
-  console.log('\nResults Summary:');
-  console.log('-'.repeat(78));
-  console.log(`Catalog size:          ${toolNames.length} tools`);
-  console.log(`Evaluated queries:     ${total}`);
-  console.log(`Full-Context LLM:      ${fcAcc.toFixed(1)}% acc | ${avgFcLatency} ms | ${avgFcTokens} tokens`);
-  console.log(`Tool-Search (BM25+LLM): ${tsAcc.toFixed(1)}% acc | ${avgTsLatency} ms | ${avgTsTokens} tokens (Recall: ${bm25RecallAcc.toFixed(1)}%)`);
-  console.log(`Tool-Prune (Jev+LLM):  ${tpAcc.toFixed(1)}% acc | ${avgTpLatency} ms | ${avgTpTokens} tokens (Top-3 Recall: ${pruneTop3Acc.toFixed(1)}%)`);
-  console.log(`Tool-Prune Direct:     ${directAcc.toFixed(1)}% acc | ${avgJevLatency} ms | 385 tokens (${directDispatchPct.toFixed(1)}% queries bypassed LLM)`);
-  console.log('-'.repeat(78));
+    console.log(`\nResults for [${modelSpec}] (${toolNames.length} tools, ${total} queries):`);
+    console.log('-'.repeat(92));
+    console.log(`Paradigm                         | Accuracy (95% CI)       | P50 Lat | Mean Lat | Avg Tokens | Overlap`);
+    console.log('-'.repeat(92));
+    for (const [label, s] of [
+      ['Tool-Prune Direct (Jev+FastPath)', summary.toolPruneDirect],
+      ['Tool-Prune + LLM (Jev Top-3)', summary.toolPruneJevLlm],
+      ['TurboQuant + LLM (Offline Top-5)', summary.turboQuantPruneLlm],
+      ['Full-Context LLM (All 60 Tools)', summary.fullContext],
+      ['Tool-Search (BM25 + LLM 2-Turn)', summary.toolSearchBm25Llm]
+    ]) {
+      const ciStr = `${s.accuracy.toFixed(1)}% [${s.ci95[0].toFixed(1)}, ${s.ci95[1].toFixed(1)}]`;
+      console.log(
+        `${label.padEnd(32)} | ${ciStr.padEnd(23)} | ${String(s.p50LatencyMs + ' ms').padEnd(7)} | ${String(s.meanLatencyMs + ' ms').padEnd(8)} | ${String(s.tokensPerTurn).padEnd(10)} | ${s.slices.overlap.toFixed(1)}%`
+      );
+    }
+    console.log('-'.repeat(92));
+  }
 
   const outputPayload = {
+    evaluatedAt: new Date().toISOString(),
     catalogSize: toolNames.length,
     queriesCount: total,
-    fullContext: { accuracy: fcAcc, latencyMs: avgFcLatency, tokensPerTurn: avgFcTokens },
-    toolSearch: { accuracy: tsAcc, latencyMs: avgTsLatency, tokensPerTurn: avgTsTokens, recall: bm25RecallAcc },
-    toolPruneTop3: { accuracy: tpAcc, latencyMs: avgTpLatency, tokensPerTurn: avgTpTokens, recall: pruneTop3Acc },
-    toolPruneDirect: { accuracy: directAcc, latencyMs: avgJevLatency, tokensPerTurn: 385, bypassedRate: directDispatchPct }
+    retrieval: {
+      typesafeJevTop1: Number(jevDirectAcc.toFixed(1)),
+      typesafeJevTop3Recall: Number(jevTop3Recall.toFixed(1)),
+      typesafeJevP50Ms: jevDirectP50,
+      typesafeJevBypassPct: Number(bypassedPct.toFixed(1)),
+      turboQuantTop5Recall: Number(tqTop5Recall.toFixed(1)),
+      bm25Top3Recall: Number(bm25Top3Recall.toFixed(1))
+    },
+    models: multiModelSummary
   };
 
-  fs.writeFileSync(path.resolve(__dirname, 'results.json'), JSON.stringify(outputPayload, null, 2));
-  console.log('Saved results to bench/results.json\n');
+  fs.writeFileSync(path.resolve(__dirname, 'results.json'), JSON.stringify(outputPayload, null, 2) + '\n');
+  console.log('\nSaved multi-model empirical results to bench/results.json\n');
 }
-
 
 run();

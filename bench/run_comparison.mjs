@@ -22,8 +22,8 @@ const catalog = args.includes('--size') && args[args.indexOf('--size') + 1] === 
 const testCases = args.includes('--size') && args[args.indexOf('--size') + 1] === '60' ? CASES_60 : CASES_30;
 const toolNames = Object.keys(catalog);
 
-// 1. Setup TurboQuant
-const tq = new TurboQuantSearch(256, 64);
+// 1. Setup TurboQuant (v0.4.0 1024-dim 4-bit PolarQuant + QJL)
+const tq = new TurboQuantSearch();
 tq.index(catalog);
 
 // 2. Setup BM25

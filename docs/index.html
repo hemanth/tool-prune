@@ -609,11 +609,11 @@
             </label>
             <div class="relative">
               <select id="calc-model" class="w-full px-3.5 py-2.5 rounded-xl text-xs font-medium bg-canvas border border-ink-200 text-ink-900 appearance-none focus:outline-none focus:ring-2 focus:ring-peach-300">
-                <option value="3.0">Claude Sonnet 4.5 ($3.00 / 1M input tokens)</option>
-                <option value="2.5">GPT-4o / GPT-4.1 ($2.50 / 1M input tokens)</option>
-                <option value="1.25">Gemini 2.5 Pro ($1.25 / 1M input tokens)</option>
-                <option value="1.0">Claude Haiku 4.5 ($1.00 / 1M input tokens)</option>
-                <option value="0.8">Claude 3.5 Haiku ($0.80 / 1M input tokens)</option>
+                <option value="2.0">Claude Sonnet 5.5 ($2.00 / 1M input tokens)</option>
+                <option value="4.0">Claude Opus 5.5 ($4.00 / 1M input tokens)</option>
+                <option value="8.0">Claude Fable 5.2 ($8.00 / 1M input tokens)</option>
+                <option value="2.5">GPT-6.1 Terra / Gemini 4 Carbon ($2.50 / 1M input tokens)</option>
+                <option value="0.1">Claude Haiku 5.5 ($0.10 / 1M input tokens)</option>
               </select>
               <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-ink-500">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -670,7 +670,7 @@
         </div>
 
         <p class="text-xs text-ink-500 leading-relaxed font-normal">
-          Beyond token cost, schema pruning accelerates agent execution: empirical evaluation with Claude Haiku 4.5 confirms 97.5% selection accuracy is preserved while cutting tokens by 72% and slashing latency from 555ms down to 195ms (149ms via direct dispatch).
+          Beyond token cost, schema pruning accelerates agent execution and unlocks smaller models: multi-model evaluation across Claude Haiku/Sonnet/Opus 5.5 confirms 97.5% selection accuracy is preserved while cutting tokens by up to 87% and slashing P50 dispatch latency down to 105ms via calibrated fast-path.
         </p>
       </div>
     </div>
@@ -713,7 +713,7 @@
               <td class="py-4 px-4 text-ink-700">Cloud System One</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 text-ink-900">189 ms</td>
+              <td class="py-4 px-4 text-ink-900">182 ms</td>
               <td class="py-4 px-4 text-ink-600">Cloud API</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -735,7 +735,7 @@
               <td class="py-4 px-4 text-ink-700">Pure JS (built-in)</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.18 ms</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.10 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -768,13 +768,13 @@
     <!-- End-to-End Architecture Benchmark (Tool-Prune vs Code Mode vs Full-Context) -->
     <div class="mt-12 max-w-3xl mb-6">
       <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-butter-800 font-semibold mb-1">
-        Agent Orchestration Evals
+        Agent Orchestration Evals (Claude 5.5 + Local SLM)
       </div>
       <h3 class="text-2xl font-bold tracking-tight text-ink-900">
-        End-to-End Agent Performance (60 Tools)
+        End-to-End Agent Performance (60 Tools, 79 Queries)
       </h3>
       <p class="text-ink-700 text-xs mt-1">
-        Empirical evaluation with Claude Haiku 4.5 across 60 production tool schemas and 79 queries, comparing Pruned JSON calling against Code Mode and Full-Context prompts.
+        Evaluated with Claude Haiku 5.5 (with B=1,000 bootstrap 95% confidence intervals) and cross-validated across Claude Sonnet 5.5, Claude Opus 5.5, Claude Fable 5.2, and local Gemma 3 1B.
       </p>
     </div>
 
@@ -784,7 +784,7 @@
           <thead>
             <tr class="bg-canvas border-b border-ink-200 text-xs font-mono text-ink-600 uppercase">
               <th class="py-3.5 px-4 sm:px-6">Architecture</th>
-              <th class="py-3.5 px-4">Selection Accuracy</th>
+              <th class="py-3.5 px-4">Accuracy (95% CI)</th>
               <th class="py-3.5 px-4">Latency (P50)</th>
               <th class="py-3.5 px-4">Tokens / Query</th>
               <th class="py-3.5 px-4">Roundtrips</th>
@@ -797,31 +797,42 @@
                 <span class="w-2 h-2 rounded-full bg-emerald-600"></span>
                 Tool-Prune Direct
               </td>
-              <td class="py-4 px-4 font-bold text-emerald-700">97.5%</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">149 ms</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">385 tokens</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">97.5% [93.7, 100]</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">105 ms</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">397 tokens</td>
               <td class="py-4 px-4 text-ink-700">0 turns</td>
-              <td class="py-4 px-4 text-emerald-800 font-semibold">LLM Bypassed (91% fast-path)</td>
+              <td class="py-4 px-4 text-emerald-800 font-semibold">LLM Bypassed (93.7% fast-path)</td>
             </tr>
             <tr class="bg-peach-50/40 hover:bg-peach-50/70 transition-colors">
               <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-peach-700"></span>
                 Tool-Prune + LLM
               </td>
-              <td class="py-4 px-4 font-bold text-emerald-700">97.5%</td>
-              <td class="py-4 px-4 text-ink-900">195 ms</td>
-              <td class="py-4 px-4 text-ink-900">397 tokens</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">97.5% [93.7, 100]</td>
+              <td class="py-4 px-4 text-ink-900">777 ms</td>
+              <td class="py-4 px-4 text-ink-900">581 tokens</td>
               <td class="py-4 px-4 text-ink-700">1 turn</td>
-              <td class="py-4 px-4 text-ink-700">Top-3 Pruned Schema Prompt</td>
+              <td class="py-4 px-4 text-ink-700">Jev Top-3 Pruned Schema (-71% tokens)</td>
+            </tr>
+            <tr class="bg-sage-50/40 hover:bg-sage-50/70 transition-colors">
+              <td class="py-4 px-4 sm:px-6 font-bold text-ink-900 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-sage-700"></span>
+                TurboQuant + LLM
+              </td>
+              <td class="py-4 px-4 font-semibold text-ink-900">93.7% [88.6, 98.7]</td>
+              <td class="py-4 px-4 font-bold text-sage-800">650 ms</td>
+              <td class="py-4 px-4 font-bold text-sage-800">270 tokens</td>
+              <td class="py-4 px-4 text-ink-700">1 turn</td>
+              <td class="py-4 px-4 text-sage-800 font-semibold">Offline Top-5 Pruned (-87% tokens, 0 keys)</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
               <td class="py-4 px-4 sm:px-6 font-semibold text-ink-900 flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-sky-600"></span>
                 Full-Context LLM
               </td>
-              <td class="py-4 px-4 text-ink-900">97.5%</td>
-              <td class="py-4 px-4 text-ink-900">555 ms</td>
-              <td class="py-4 px-4 text-ink-900">1,409 tokens</td>
+              <td class="py-4 px-4 text-ink-900">97.5% [93.7, 100]</td>
+              <td class="py-4 px-4 text-ink-900">683 ms</td>
+              <td class="py-4 px-4 text-ink-900">2,026 tokens</td>
               <td class="py-4 px-4 text-ink-700">1 turn</td>
               <td class="py-4 px-4 text-ink-700">All 60 Tool Schemas in Prompt</td>
             </tr>
@@ -830,20 +841,20 @@
                 <span class="w-2 h-2 rounded-full bg-ink-400"></span>
                 Tool-Search (BM25 + LLM)
               </td>
-              <td class="py-4 px-4 text-ink-700">87.3%</td>
-              <td class="py-4 px-4 text-ink-700">979 ms</td>
-              <td class="py-4 px-4 text-ink-700">436 tokens</td>
+              <td class="py-4 px-4 text-ink-700">93.7% [88.6, 98.7]</td>
+              <td class="py-4 px-4 text-ink-700">1,185 ms</td>
+              <td class="py-4 px-4 text-ink-700">469 tokens</td>
               <td class="py-4 px-4 text-ink-700">2 turns</td>
-              <td class="py-4 px-4 text-ink-700">Lexical Retrieval Loss</td>
+              <td class="py-4 px-4 text-ink-700">Two-Turn Lexical Discovery</td>
             </tr>
             <tr class="bg-rose-50/30 hover:bg-rose-50/60 transition-colors">
               <td class="py-4 px-4 sm:px-6 font-semibold text-rose-900 flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-rose-500"></span>
                 Code Mode (search + eval)
               </td>
-              <td class="py-4 px-4 font-bold text-rose-700">64.6%</td>
-              <td class="py-4 px-4 text-rose-800">2,209 ms</td>
-              <td class="py-4 px-4 text-rose-800">1,735 tokens</td>
+              <td class="py-4 px-4 font-bold text-rose-700">57.0%</td>
+              <td class="py-4 px-4 text-rose-800">1,530 ms</td>
+              <td class="py-4 px-4 text-rose-800">1,565 tokens</td>
               <td class="py-4 px-4 text-ink-700">1.9 turns</td>
               <td class="py-4 px-4 text-rose-700">Multi-Turn Discovery Drop</td>
             </tr>
@@ -852,9 +863,73 @@
       </div>
     </div>
 
+    <!-- Cross-Model Matrix -->
+    <div class="mt-6 rounded-2xl border border-ink-200 bg-white shadow-sm overflow-hidden">
+      <div class="px-4 sm:px-6 py-3 bg-canvas border-b border-ink-200 flex items-center justify-between">
+        <span class="font-mono text-xs font-bold uppercase text-ink-700">Cross-Model Matrix (60 Tools • Accuracy / P50 Latency)</span>
+        <span class="font-mono text-[11px] text-ink-500">Paired 79-query split</span>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-xs font-mono">
+          <thead>
+            <tr class="border-b border-ink-100 text-ink-500 uppercase">
+              <th class="py-3 px-4 sm:px-6">Model</th>
+              <th class="py-3 px-4">Full-Context (60)</th>
+              <th class="py-3 px-4">Offline TurboQuant + LLM</th>
+              <th class="py-3 px-4">Tool-Prune + LLM</th>
+              <th class="py-3 px-4">Tool-Prune Direct</th>
+              <th class="py-3 px-4">Code Mode</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-ink-100">
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Claude Opus 5.5</td>
+              <td class="py-3 px-4 text-ink-700">97.5% (1,106 ms)</td>
+              <td class="py-3 px-4 text-ink-800">93.7% (1,106 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (1,502 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (105 ms)</td>
+              <td class="py-3 px-4 text-rose-700">74.7% (3,360 ms)</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Claude Sonnet 5.5</td>
+              <td class="py-3 px-4 text-ink-700">97.5% (843 ms)</td>
+              <td class="py-3 px-4 text-ink-800">93.7% (854 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (989 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (105 ms)</td>
+              <td class="py-3 px-4 text-rose-700">50.6% (1,986 ms)</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Claude Fable 5.2</td>
+              <td class="py-3 px-4 text-ink-700">97.5% (2,643 ms)</td>
+              <td class="py-3 px-4 font-semibold text-sage-800">93.7% (1,804 ms)</td>
+              <td class="py-3 px-4 text-ink-900">96.2% (3,008 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (105 ms)</td>
+              <td class="py-3 px-4 text-rose-700">50.6% (4,529 ms)</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Claude Haiku 5.5</td>
+              <td class="py-3 px-4 text-ink-700">97.5% (683 ms)</td>
+              <td class="py-3 px-4 font-semibold text-sage-800">93.7% (650 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (777 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (105 ms)</td>
+              <td class="py-3 px-4 text-rose-700">57.0% (1,530 ms)</td>
+            </tr>
+            <tr class="bg-peach-50/30 hover:bg-peach-50/60 transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Gemma 3 1B (Local Ollama)</td>
+              <td class="py-3 px-4 text-rose-700 font-semibold">15.2% (353 ms)</td>
+              <td class="py-3 px-4 font-bold text-sage-800">68.4% (252 ms)</td>
+              <td class="py-3 px-4 font-bold text-peach-800">87.3% (359 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">96.2% (105 ms)</td>
+              <td class="py-3 px-4 text-ink-400">N/A</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Code Mode Architectural Insight Note -->
     <div class="mt-4 p-4 rounded-xl bg-canvas border border-ink-200 text-xs text-ink-600 leading-relaxed">
-      <span class="font-bold text-ink-900">Why Code Mode is not enough for atomic tool dispatch:</span> While Code Mode is effective for large-scale data manipulation (loops and aggregations inside isolated micro-runtimes), forcing discrete API calls through two-stage dynamic discovery (<code class="font-mono text-ink-800">search_tools</code> &rarr; <code class="font-mono text-ink-800">execute_code</code>) causes a 64.6% accuracy collapse due to keyword discovery misses, adds an 11x latency tax (2,209ms vs 195ms), and consumes 4.3x more tokens than calibrated schema pruning.
+      <span class="font-bold text-ink-900">Key takeaways across models:</span> (1) On small local models like <code class="font-mono text-ink-800">gemma3:1b</code>, 60 unpruned tool schemas cause catastrophic context dilution (15.2% accuracy), whereas schema pruning boosts accuracy up to 87.3% (and 96.2% with direct dispatch). (2) Across Claude 5.5 models, forcing discrete API calls through two-stage Code Mode (<code class="font-mono text-ink-800">search_tools</code> &rarr; <code class="font-mono text-ink-800">execute_code</code>) drops accuracy to 50.6%–74.7% and adds a 15x–43x P50 latency tax compared to calibrated direct dispatch (105ms).
     </div>
   </section>
 

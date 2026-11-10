@@ -1,27 +1,410 @@
 {
+  "evaluatedAt": "2026-11-10T20:05:28.816Z",
   "catalogSize": 60,
   "queriesCount": 79,
-  "fullContext": {
-    "accuracy": 97.46835443037975,
-    "latencyMs": 555,
-    "tokensPerTurn": 1409
+  "retrieval": {
+    "typesafeJevTop1": 96.2,
+    "typesafeJevTop3Recall": 100,
+    "typesafeJevP50Ms": 104,
+    "typesafeJevBypassPct": 93.7,
+    "turboQuantTop5Recall": 91.1,
+    "bm25Top3Recall": 87.3
   },
-  "toolSearch": {
-    "accuracy": 87.34177215189874,
-    "latencyMs": 979,
-    "tokensPerTurn": 436,
-    "recall": 87.34177215189874
-  },
-  "toolPruneTop3": {
-    "accuracy": 97.46835443037975,
-    "latencyMs": 195,
-    "tokensPerTurn": 397,
-    "recall": 100
-  },
-  "toolPruneDirect": {
-    "accuracy": 97.46835443037975,
-    "latencyMs": 149,
-    "tokensPerTurn": 385,
-    "bypassedRate": 91.13924050632912
+  "models": {
+    "claude-haiku-5-5": {
+      "model": "claude-haiku-5-5",
+      "fullContext": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 683,
+        "meanLatencyMs": 765,
+        "tokensPerTurn": 2026,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 650,
+        "meanLatencyMs": 716,
+        "tokensPerTurn": 270,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 1185,
+        "meanLatencyMs": 1266,
+        "tokensPerTurn": 469,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 777,
+        "meanLatencyMs": 793,
+        "tokensPerTurn": 581,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 105,
+        "meanLatencyMs": 155,
+        "tokensPerTurn": 397,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    },
+    "claude-sonnet-5-5": {
+      "model": "claude-sonnet-5-5",
+      "fullContext": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 843,
+        "meanLatencyMs": 955,
+        "tokensPerTurn": 2024,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 854,
+        "meanLatencyMs": 999,
+        "tokensPerTurn": 271,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 1655,
+        "meanLatencyMs": 1863,
+        "tokensPerTurn": 466,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 989,
+        "meanLatencyMs": 1068,
+        "tokensPerTurn": 583,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 105,
+        "meanLatencyMs": 185,
+        "tokensPerTurn": 397,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    },
+    "claude-opus-5-5": {
+      "model": "claude-opus-5-5",
+      "fullContext": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 1106,
+        "meanLatencyMs": 1563,
+        "tokensPerTurn": 2024,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 1106,
+        "meanLatencyMs": 1462,
+        "tokensPerTurn": 272,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 2179,
+        "meanLatencyMs": 2637,
+        "tokensPerTurn": 467,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 1502,
+        "meanLatencyMs": 1718,
+        "tokensPerTurn": 591,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 105,
+        "meanLatencyMs": 235,
+        "tokensPerTurn": 398,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    },
+    "claude-fable-5-2": {
+      "model": "claude-fable-5-2",
+      "fullContext": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 2643,
+        "meanLatencyMs": 2442,
+        "tokensPerTurn": 2029,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 1804,
+        "meanLatencyMs": 2295,
+        "tokensPerTurn": 289,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 5733,
+        "meanLatencyMs": 4935,
+        "tokensPerTurn": 478,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "p50LatencyMs": 3008,
+        "meanLatencyMs": 2650,
+        "tokensPerTurn": 605,
+        "slices": {
+          "direct": 100,
+          "overlap": 88.9,
+          "ood": 100
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 105,
+        "meanLatencyMs": 263,
+        "tokensPerTurn": 400,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    },
+    "ollama:gemma3:1b": {
+      "model": "ollama:gemma3:1b",
+      "fullContext": {
+        "accuracy": 15.2,
+        "ci95": [
+          7.6,
+          22.8
+        ],
+        "p50LatencyMs": 353,
+        "meanLatencyMs": 359,
+        "tokensPerTurn": 1344,
+        "slices": {
+          "direct": 17.4,
+          "overlap": 14.8,
+          "ood": 0
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 68.4,
+        "ci95": [
+          58.2,
+          77.2
+        ],
+        "p50LatencyMs": 252,
+        "meanLatencyMs": 258,
+        "tokensPerTurn": 184,
+        "slices": {
+          "direct": 91.3,
+          "overlap": 44.4,
+          "ood": 0
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 77.2,
+        "ci95": [
+          67.1,
+          86.1
+        ],
+        "p50LatencyMs": 456,
+        "meanLatencyMs": 457,
+        "tokensPerTurn": 402,
+        "slices": {
+          "direct": 95.7,
+          "overlap": 63,
+          "ood": 0
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 87.3,
+        "ci95": [
+          79.7,
+          93.7
+        ],
+        "p50LatencyMs": 359,
+        "meanLatencyMs": 368,
+        "tokensPerTurn": 530,
+        "slices": {
+          "direct": 100,
+          "overlap": 85.2,
+          "ood": 0
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 96.2,
+        "ci95": [
+          91.1,
+          100
+        ],
+        "p50LatencyMs": 105,
+        "meanLatencyMs": 133,
+        "tokensPerTurn": 394,
+        "slices": {
+          "direct": 100,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    }
   }
 }

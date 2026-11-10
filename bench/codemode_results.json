@@ -1,11 +1,53 @@
 {
-  "method": "codemode",
-  "model": "claude-haiku-4-5-20251001",
-  "queriesCount": 79,
-  "accuracy": 64.55696202531645,
-  "searchBlindnessRate": 3.79746835443038,
-  "hallucinationRate": 3.79746835443038,
-  "latencyMs": 2209,
-  "tokensPerTurn": 1735,
-  "avgTurns": 1.9
+  "evaluatedAt": "2026-11-10T20:10:03.519Z",
+  "models": {
+    "claude-haiku-5-5": {
+      "method": "codemode",
+      "model": "claude-haiku-5-5",
+      "queriesCount": 79,
+      "accuracy": 57,
+      "searchBlindnessRate": 0,
+      "hallucinationRate": 0,
+      "p50LatencyMs": 1530,
+      "meanLatencyMs": 1594,
+      "tokensPerTurn": 1565,
+      "avgTurns": 1.92
+    },
+    "claude-sonnet-5-5": {
+      "method": "codemode",
+      "model": "claude-sonnet-5-5",
+      "queriesCount": 79,
+      "accuracy": 50.6,
+      "searchBlindnessRate": 0,
+      "hallucinationRate": 0,
+      "p50LatencyMs": 1986,
+      "meanLatencyMs": 2181,
+      "tokensPerTurn": 1417,
+      "avgTurns": 1.91
+    },
+    "claude-opus-5-5": {
+      "method": "codemode",
+      "model": "claude-opus-5-5",
+      "queriesCount": 79,
+      "accuracy": 74.7,
+      "searchBlindnessRate": 0,
+      "hallucinationRate": 0,
+      "p50LatencyMs": 3360,
+      "meanLatencyMs": 4471,
+      "tokensPerTurn": 1721,
+      "avgTurns": 1.9
+    },
+    "claude-fable-5-2": {
+      "method": "codemode",
+      "model": "claude-fable-5-2",
+      "queriesCount": 79,
+      "accuracy": 50.6,
+      "searchBlindnessRate": 0,
+      "hallucinationRate": 0,
+      "p50LatencyMs": 4529,
+      "meanLatencyMs": 5241,
+      "tokensPerTurn": 1461,
+      "avgTurns": 1.92
+    }
+  }
 }

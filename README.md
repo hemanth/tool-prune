@@ -99,30 +99,41 @@ Evaluated on Gorilla BFCL v3 multiple-tool benchmark:
 
 | Engine | Backend | Distractor Top-1 | 100-Tool Top-5 Prune | Latency | Network |
 |---|---|---|---|---|---|
-| **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 189 ms | Cloud API |
+| **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 182 ms | Cloud API |
 | **TurboQuant** | Python Rust (`turbovec`) | **100.0%** | **100.0%** | 0.041 ms | Offline |
-| **TurboQuant** | Pure JS (built-in) | **100.0%** | **100.0%** | 0.18 ms | Offline |
+| **TurboQuant** | Pure JS (built-in) | **100.0%** | **100.0%** | 0.10 ms | Offline |
 | **TurboQuant** | Pure Python (stdlib) | **100.0%** | **100.0%** | 1.35 ms | Offline |
 | *BM25 (Baseline)* | Lexical search | 88.3% | 95.0% | 1.30 ms | Offline |
 
-## End-to-End Agent Architecture Benchmark (60 Tools)
+## End-to-End Agent Architecture Benchmark (60 Tools, 79 Queries)
 
-Evaluated with Claude Haiku 4.5 across 60 tool schemas and 79 queries:
+Evaluated with Claude Haiku 5.5 (`claude-haiku-5-5`, $B=1,000$ bootstrap 95% CIs in `bench/results.json`):
 
-| Paradigm | Accuracy | Latency (P50) | Tokens / Turn | Roundtrips | Notes |
+| Paradigm | Accuracy (95% CI) | Latency (P50) | Tokens / Turn | Roundtrips | Notes |
 |---|---|---|---|---|---|
-| **Tool-Prune Direct** | **97.5%** | **149 ms** | **385 tokens** | 0 LLM turns | LLM bypassed via calibrated fast-path (91% of queries) |
-| **Tool-Prune + LLM** | **97.5%** | **195 ms** | **397 tokens** | 1 turn | Dynamic Top-K candidate schema pruning (-72% tokens) |
-| **Full-Context LLM** | 97.5% | 555 ms | 1,409 tokens | 1 turn | All 60 tool schemas dumped into prompt context |
-| **Tool-Search (BM25 + LLM)** | 87.3% | 979 ms | 436 tokens | 2 turns | Lexical retrieval bottleneck on ambiguous queries |
-| **Code Mode (`search` + `eval`)** | 64.6% | 2,209 ms | 1,735 tokens | 1.9 turns | Multi-turn discovery drops target before sandbox execution |
+| **Tool-Prune Direct** | **97.5%** `[93.7, 100]` | **105 ms** | **397 tokens** | 0 LLM turns | Calibrated fast-path bypasses LLM on 93.7% of queries |
+| **Tool-Prune + LLM** | **97.5%** `[93.7, 100]` | 777 ms | 581 tokens | 1 turn | Jev Top-3 schema pruning (100% recall, -71% tokens) |
+| **TurboQuant + LLM** | 93.7% `[88.6, 98.7]` | **650 ms** | **270 tokens** | 1 turn | Zero-dep offline Top-5 pruning (-87% tokens, 0 API keys) |
+| **Full-Context LLM** | 97.5% `[93.7, 100]` | 683 ms | 2,026 tokens | 1 turn | All 60 tool schemas sent in every prompt |
+| **Tool-Search (BM25 + LLM)** | 93.7% `[88.6, 98.7]` | 1,185 ms | 469 tokens | 2 turns | Two-turn lexical discovery doubles latency |
+| **Code Mode (`search` + `eval`)** | 57.0% | 1,530 ms | 1,565 tokens | 1.9 turns | Keyword discovery drops target before sandbox execution |
+
+### Multi-Model Generalization (Accuracy / P50 Latency)
+
+| Model | Full-Context (60 Tools) | Offline TurboQuant + LLM | Tool-Prune + LLM | Tool-Prune Direct | Code Mode |
+|---|---|---|---|---|---|
+| **Claude Opus 5.5** | 97.5% (1,106 ms) | 93.7% (1,106 ms) | **97.5%** (1,502 ms) | **97.5% (105 ms)** | 74.7% (3,360 ms) |
+| **Claude Sonnet 5.5** | 97.5% (843 ms) | 93.7% (854 ms) | **97.5%** (989 ms) | **97.5% (105 ms)** | 50.6% (1,986 ms) |
+| **Claude Fable 5.2** | 97.5% (2,643 ms) | 93.7% (1,804 ms) | 96.2% (3,008 ms) | **97.5% (105 ms)** | 50.6% (4,529 ms) |
+| **Claude Haiku 5.5** | 97.5% (683 ms) | 93.7% (650 ms) | **97.5%** (777 ms) | **97.5% (105 ms)** | 57.0% (1,530 ms) |
+| **Gemma 3 1B (Local)** | 15.2% (353 ms) | **68.4% (252 ms)** | **87.3% (359 ms)** | **96.2% (105 ms)** | N/A |
 
 Run evaluations:
 
 ```bash
 node bench/run_bfcl_eval.mjs
-node bench/run_tqs_eval.mjs --size 60
-uv run --with turbovec --with numpy python3 bench/run_turbovec_bench.py
+node bench/run.mjs --size 60 --models claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-2,ollama:gemma3:1b
+node bench/run_codemode_eval.mjs --models claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-2
 ```
 
 ## License

@@ -13,11 +13,28 @@ if (!ANTHROPIC_API_KEY) {
   process.exit(1);
 }
 
+const args = process.argv.slice(2);
+const modelsArg = args.includes('--models')
+  ? args[args.indexOf('--models') + 1].split(',').map(s => s.trim()).filter(Boolean)
+  : ['claude-haiku-5-5'];
+
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function percentile(values, p = 50) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  if (lo === hi) return sorted[lo];
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
 // BM25 / Keyword search implementation for search_tools
 function searchTools(query, topK = 5) {
   const qTokens = query.toLowerCase().replace(/[^a-z0-9_]/g, ' ').split(/\s+/).filter(Boolean);
   const toolEntries = Object.entries(TOOLS_60);
-  
+
   const scored = toolEntries.map(([name, meta]) => {
     const text = `${name} ${meta.description} ${meta.criteria}`.toLowerCase();
     let score = 0;
@@ -57,28 +74,39 @@ const codeModeToolsDefinition = [
   }
 ];
 
-async function callClaude(messages, systemPrompt) {
-  const t0 = performance.now();
-  const resp = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 400,
-      system: systemPrompt,
-      tools: codeModeToolsDefinition,
-      messages
-    })
-  });
-  const latency = performance.now() - t0;
-  const data = await resp.json();
-  const inputTokens = data.usage?.input_tokens || 0;
-  const outputTokens = data.usage?.output_tokens || 0;
-  return { data, latency, inputTokens, outputTokens };
+async function callClaude(model, messages, systemPrompt) {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const t0 = performance.now();
+    try {
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': ANTHROPIC_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1500,
+          system: systemPrompt,
+          tools: codeModeToolsDefinition,
+          messages
+        })
+      });
+      const latency = performance.now() - t0;
+      if (resp.status === 429 || resp.status === 529 || resp.status >= 500) {
+        await sleep(700 * Math.pow(2, attempt));
+        continue;
+      }
+      const data = await resp.json();
+      const inputTokens = data.usage?.input_tokens || 0;
+      const outputTokens = data.usage?.output_tokens || 0;
+      return { data, latency, inputTokens, outputTokens };
+    } catch {
+      await sleep(600 * Math.pow(2, attempt));
+    }
+  }
+  return { data: { content: [] }, latency: 0, inputTokens: 0, outputTokens: 0 };
 }
 
 function extractApiCall(code) {
@@ -86,8 +114,7 @@ function extractApiCall(code) {
   return match ? match[1] : null;
 }
 
-// Concurrency helper
-async function pMap(array, fn, concurrency = 5) {
+async function pMap(array, fn, concurrency = 4) {
   const results = new Array(array.length);
   let index = 0;
   const workers = new Array(concurrency).fill(null).map(async () => {
@@ -101,10 +128,10 @@ async function pMap(array, fn, concurrency = 5) {
 }
 
 async function runCodeModeBenchmark() {
-  console.log('='.repeat(78));
-  console.log(`EMPIRICAL EVALUATION: CODE MODE (SEARCH + EXECUTE_CODE) ON 60 TOOLS`);
-  console.log(`Model: Claude Haiku 4.5 via Anthropic API | Test Cases: ${CASES_60.length} Queries`);
-  console.log('='.repeat(78));
+  console.log('='.repeat(86));
+  console.log(`EMPIRICAL EVALUATION: CODE MODE (SEARCH + EXECUTE_CODE) ON 60 TOOLS (${CASES_60.length} QUERIES)`);
+  console.log(`Models: ${modelsArg.join(', ')}`);
+  console.log('='.repeat(86));
 
   const systemPrompt = `You are an AI agent operating in Code Mode.
 You do NOT have the entire catalog of 60 tools preloaded in your context.
@@ -114,119 +141,131 @@ You have two tools:
 
 IMPORTANT: You must search the catalog first if you are not certain of the exact tool name. Do NOT hallucinate tool names.`;
 
-  const results = await pMap(CASES_60, async (test, idx) => {
-    process.stdout.write(`Evaluating Code Mode [${idx + 1}/${CASES_60.length}]... \r`);
+  const allSummaries = {};
 
-    let totalLatency = 0;
-    let totalTokens = 0;
-    let turnsUsed = 0;
-    let skippedSearch = false;
-    let searchFoundTarget = false;
-    let apiCalled = null;
-    let hallucinatedApi = false;
-    let success = false;
+  for (const model of modelsArg) {
+    console.log(`\nEvaluating Code Mode on [${model}]...`);
+    const results = await pMap(CASES_60, async (test, idx) => {
+      process.stdout.write(`  [${model}] [${idx + 1}/${CASES_60.length}]... \r`);
 
-    // --- TURN 1 ---
-    const messages = [{ role: 'user', content: test.query }];
-    const turn1 = await callClaude(messages, systemPrompt);
-    totalLatency += turn1.latency;
-    totalTokens += turn1.inputTokens + turn1.outputTokens;
-    turnsUsed = 1;
+      let totalLatency = 0;
+      let totalTokens = 0;
+      let turnsUsed = 0;
+      let skippedSearch = false;
+      let searchFoundTarget = false;
+      let apiCalled = null;
+      let hallucinatedApi = false;
+      let success = false;
 
-    const toolCalls1 = (turn1.data.content || []).filter(c => c.type === 'tool_use');
-    const searchCall = toolCalls1.find(tc => tc.name === 'search_tools');
-    const execCall1 = toolCalls1.find(tc => tc.name === 'execute_code');
+      // --- TURN 1 ---
+      const messages = [{ role: 'user', content: test.query }];
+      const turn1 = await callClaude(model, messages, systemPrompt);
+      totalLatency += turn1.latency;
+      totalTokens += turn1.inputTokens + turn1.outputTokens;
+      turnsUsed = 1;
 
-    if (execCall1 && !searchCall) {
-      // Model skipped search tool entirely! (Meta-tool blindness)
-      skippedSearch = true;
-      const code = execCall1.input?.code || '';
-      apiCalled = extractApiCall(code);
-      hallucinatedApi = !TOOLS_60[apiCalled];
-      success = apiCalled === test.target;
-    } else if (searchCall) {
-      // Model called search_tools
-      const searchQuery = searchCall.input?.query || '';
-      const searchMatches = searchTools(searchQuery, 5);
-      searchFoundTarget = searchMatches.some(m => m.name === test.target);
+      const toolCalls1 = (turn1.data.content || []).filter(c => c.type === 'tool_use');
+      const searchCall = toolCalls1.find(tc => tc.name === 'search_tools');
+      const execCall1 = toolCalls1.find(tc => tc.name === 'execute_code');
 
-      // --- TURN 2 ---
-      messages.push({ role: 'assistant', content: turn1.data.content });
-      messages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'tool_result',
-            tool_use_id: searchCall.id,
-            content: JSON.stringify(searchMatches.map(m => ({ tool: m.name, description: m.description })))
-          }
-        ]
-      });
-
-      const turn2 = await callClaude(messages, systemPrompt);
-      totalLatency += turn2.latency;
-      totalTokens += turn2.inputTokens + turn2.outputTokens;
-      turnsUsed = 2;
-
-      const toolCalls2 = (turn2.data.content || []).filter(c => c.type === 'tool_use');
-      const execCall2 = toolCalls2.find(tc => tc.name === 'execute_code');
-
-      if (execCall2) {
-        const code = execCall2.input?.code || '';
+      if (test.type === 'ood' && toolCalls1.length === 0) {
+        // Correctly abstained from calling a tool on OOD query
+        success = true;
+      } else if (execCall1 && !searchCall) {
+        skippedSearch = true;
+        const code = execCall1.input?.code || '';
         apiCalled = extractApiCall(code);
-        hallucinatedApi = !TOOLS_60[apiCalled];
-        success = apiCalled === test.target;
+        hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
+        success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
+      } else if (searchCall) {
+        const searchQuery = searchCall.input?.query || '';
+        const searchMatches = searchTools(searchQuery, 5);
+        searchFoundTarget = searchMatches.some(m => m.name === test.target);
+
+        // --- TURN 2 ---
+        messages.push({ role: 'assistant', content: turn1.data.content });
+        messages.push({
+          role: 'user',
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: searchCall.id,
+              content: JSON.stringify(searchMatches.map(m => ({ tool: m.name, description: m.description })))
+            }
+          ]
+        });
+
+        const turn2 = await callClaude(model, messages, systemPrompt);
+        totalLatency += turn2.latency;
+        totalTokens += turn2.inputTokens + turn2.outputTokens;
+        turnsUsed = 2;
+
+        const toolCalls2 = (turn2.data.content || []).filter(c => c.type === 'tool_use');
+        const execCall2 = toolCalls2.find(tc => tc.name === 'execute_code');
+
+        if (test.type === 'ood' && !execCall2) {
+          success = true;
+        } else if (execCall2) {
+          const code = execCall2.input?.code || '';
+          apiCalled = extractApiCall(code);
+          hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
+          success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
+        }
       }
-    }
 
-    return {
-      query: test.query,
-      target: test.target,
-      type: test.type,
-      success,
-      skippedSearch,
-      searchFoundTarget,
-      apiCalled,
-      hallucinatedApi,
-      turnsUsed,
-      totalLatency,
-      totalTokens
+      return {
+        query: test.query,
+        target: test.target,
+        type: test.type,
+        success,
+        skippedSearch,
+        searchFoundTarget,
+        apiCalled,
+        hallucinatedApi,
+        turnsUsed,
+        totalLatency,
+        totalTokens
+      };
+    }, 4);
+
+    const total = results.length;
+    const successCount = results.filter(r => r.success).length;
+    const skippedSearchCount = results.filter(r => r.skippedSearch).length;
+    const hallucinatedCount = results.filter(r => r.hallucinatedApi).length;
+    const p50Latency = Math.round(percentile(results.map(r => r.totalLatency), 50));
+    const avgLatency = Math.round(results.reduce((a, b) => a + b.totalLatency, 0) / total);
+    const avgTokens = Math.round(results.reduce((a, b) => a + b.totalTokens, 0) / total);
+    const avgTurns = Number((results.reduce((a, b) => a + b.turnsUsed, 0) / total).toFixed(2));
+
+    console.log(`\n--- CODE MODE RESULTS [${model}] (60 Tools, ${total} Queries) ---`);
+    console.log('-'.repeat(86));
+    console.log(`Task Accuracy:                  ${((successCount / total) * 100).toFixed(1)}% (${successCount}/${total})`);
+    console.log(`Meta-Tool Blindness (No search): ${((skippedSearchCount / total) * 100).toFixed(1)}% (${skippedSearchCount}/${total})`);
+    console.log(`API Hallucination Rate:         ${((hallucinatedCount / total) * 100).toFixed(1)}% (${hallucinatedCount}/${total})`);
+    console.log(`Latency (P50 / Mean):           ${p50Latency} ms / ${avgLatency} ms`);
+    console.log(`Average Tokens Consumed:        ${avgTokens} tokens`);
+    console.log(`Average Interaction Turns:      ${avgTurns} turns`);
+    console.log('-'.repeat(86));
+
+    allSummaries[model] = {
+      method: 'codemode',
+      model,
+      queriesCount: total,
+      accuracy: Number(((successCount / total) * 100).toFixed(1)),
+      searchBlindnessRate: Number(((skippedSearchCount / total) * 100).toFixed(1)),
+      hallucinationRate: Number(((hallucinatedCount / total) * 100).toFixed(1)),
+      p50LatencyMs: p50Latency,
+      meanLatencyMs: avgLatency,
+      tokensPerTurn: avgTokens,
+      avgTurns
     };
-  }, 4);
+  }
 
-  const total = results.length;
-  const successCount = results.filter(r => r.success).length;
-  const skippedSearchCount = results.filter(r => r.skippedSearch).length;
-  const hallucinatedCount = results.filter(r => r.hallucinatedApi).length;
-  const avgLatency = Math.round(results.reduce((a, b) => a + b.totalLatency, 0) / total);
-  const avgTokens = Math.round(results.reduce((a, b) => a + b.totalTokens, 0) / total);
-  const avgTurns = (results.reduce((a, b) => a + b.turnsUsed, 0) / total).toFixed(1);
-
-  console.log('\n\n--- CODE MODE EMPIRICAL RESULTS (60 Tools, 79 Queries) ---');
-  console.log('-'.repeat(78));
-  console.log(`Task Accuracy:                 ${((successCount / total) * 100).toFixed(1)}% (${successCount}/${total})`);
-  console.log(`Meta-Tool Blindness (No search): ${((skippedSearchCount / total) * 100).toFixed(1)}% (${skippedSearchCount}/${total} queries)`);
-  console.log(`API Hallucination Rate:        ${((hallucinatedCount / total) * 100).toFixed(1)}% (${hallucinatedCount}/${total} generated non-existent methods)`);
-  console.log(`Average Latency per Query:     ${avgLatency} ms`);
-  console.log(`Average Tokens Consumed:       ${avgTokens} tokens`);
-  console.log(`Average Interaction Turns:     ${avgTurns} turns`);
-  console.log('-'.repeat(78));
-
-  // Save results
-  const summary = {
-    method: 'codemode',
-    model: 'claude-haiku-4-5-20251001',
-    queriesCount: total,
-    accuracy: (successCount / total) * 100,
-    searchBlindnessRate: (skippedSearchCount / total) * 100,
-    hallucinationRate: (hallucinatedCount / total) * 100,
-    latencyMs: avgLatency,
-    tokensPerTurn: avgTokens,
-    avgTurns: Number(avgTurns)
-  };
-
-  fs.writeFileSync(path.resolve(__dirname, 'codemode_results.json'), JSON.stringify(summary, null, 2));
-  console.log('Saved results to bench/codemode_results.json\n');
+  fs.writeFileSync(
+    path.resolve(__dirname, 'codemode_results.json'),
+    JSON.stringify({ evaluatedAt: new Date().toISOString(), models: allSummaries }, null, 2) + '\n'
+  );
+  console.log('\nSaved Code Mode results to bench/codemode_results.json\n');
 }
 
 runCodeModeBenchmark();
