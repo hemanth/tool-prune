@@ -768,13 +768,13 @@
     <!-- End-to-End Architecture Benchmark (Tool-Prune vs Code Mode vs Full-Context) -->
     <div class="mt-12 max-w-3xl mb-6">
       <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-butter-800 font-semibold mb-1">
-        Agent Orchestration Evals (Claude 5.5 + Local SLM)
+        Agent Orchestration Evals (Claude 5.5 + Gemini 4 + Local SLM)
       </div>
       <h3 class="text-2xl font-bold tracking-tight text-ink-900">
         End-to-End Agent Performance (60 Tools, 79 Queries)
       </h3>
       <p class="text-ink-700 text-xs mt-1">
-        Evaluated with Claude Haiku 5.5 (with B=1,000 bootstrap 95% confidence intervals) and cross-validated across Claude Sonnet 5.5, Claude Opus 5.5, Claude Fable 5.2, and local Gemma 3 1B.
+        Evaluated with Claude Haiku 5.5 (with B=1,000 bootstrap 95% confidence intervals) and cross-validated across Claude Sonnet 5.5, Claude Opus 5.5, Claude Fable 5.2, Gemini 4 Carbon, Gemini 4 Argon, and local Gemma 3 1B.
       </p>
     </div>
 
@@ -914,6 +914,22 @@
               <td class="py-3 px-4 font-bold text-emerald-700">97.5% (105 ms)</td>
               <td class="py-3 px-4 text-rose-700">57.0% (1,530 ms)</td>
             </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Gemini 4 Carbon</td>
+              <td class="py-3 px-4 text-ink-700">97.5% (7,575 ms)</td>
+              <td class="py-3 px-4 font-semibold text-sage-800">92.4% (7,415 ms)</td>
+              <td class="py-3 px-4 font-semibold text-emerald-700">96.2% (5,333 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (100 ms)</td>
+              <td class="py-3 px-4 text-rose-700">62.0% (102,403 ms)</td>
+            </tr>
+            <tr class="hover:bg-canvas transition-colors">
+              <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Gemini 4 Argon</td>
+              <td class="py-3 px-4 text-ink-700">97.5% (3,785 ms)</td>
+              <td class="py-3 px-4 font-semibold text-sage-800">92.4% (3,676 ms)</td>
+              <td class="py-3 px-4 text-ink-900">96.2% (4,121 ms)</td>
+              <td class="py-3 px-4 font-bold text-emerald-700">97.5% (100 ms)</td>
+              <td class="py-3 px-4 text-rose-700">87.3% (16,636 ms)</td>
+            </tr>
             <tr class="bg-peach-50/30 hover:bg-peach-50/60 transition-colors">
               <td class="py-3 px-4 sm:px-6 font-bold text-ink-900">Gemma 3 1B (Local Ollama)</td>
               <td class="py-3 px-4 text-rose-700 font-semibold">15.2% (353 ms)</td>
@@ -929,7 +945,7 @@
 
     <!-- Code Mode Architectural Insight Note -->
     <div class="mt-4 p-4 rounded-xl bg-canvas border border-ink-200 text-xs text-ink-600 leading-relaxed">
-      <span class="font-bold text-ink-900">Key takeaways across models:</span> (1) On small local models like <code class="font-mono text-ink-800">gemma3:1b</code>, 60 unpruned tool schemas cause catastrophic context dilution (15.2% accuracy), whereas schema pruning boosts accuracy up to 87.3% (and 96.2% with direct dispatch). (2) Across Claude 5.5 models, forcing discrete API calls through two-stage Code Mode (<code class="font-mono text-ink-800">search_tools</code> &rarr; <code class="font-mono text-ink-800">execute_code</code>) drops accuracy to 50.6%–74.7% and adds a 15x–43x P50 latency tax compared to calibrated direct dispatch (105ms).
+      <span class="font-bold text-ink-900">Key takeaways across models:</span> (1) On small local models like <code class="font-mono text-ink-800">gemma3:1b</code>, 60 unpruned tool schemas cause catastrophic context dilution (15.2% accuracy), whereas schema pruning boosts accuracy up to 87.3% (and 96.2% with direct dispatch). (2) Across Claude 5.5 and Gemini 4 models, forcing discrete API calls through two-stage Code Mode (<code class="font-mono text-ink-800">search_tools</code> &rarr; <code class="font-mono text-ink-800">execute_code</code>) drops accuracy to 50.6%–87.3% and adds a 15x–1,000x P50 latency tax compared to calibrated direct dispatch (100–105ms).
     </div>
   </section>
 

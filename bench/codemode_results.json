@@ -1,5 +1,5 @@
 {
-  "evaluatedAt": "2026-11-10T20:10:03.519Z",
+  "evaluatedAt": "2026-11-10T23:11:20.185Z",
   "models": {
     "claude-haiku-5-5": {
       "method": "codemode",
@@ -48,6 +48,30 @@
       "meanLatencyMs": 5241,
       "tokensPerTurn": 1461,
       "avgTurns": 1.92
+    },
+    "gemini-4-argon": {
+      "method": "codemode",
+      "model": "gemini-4-argon",
+      "queriesCount": 79,
+      "accuracy": 87.3,
+      "searchBlindnessRate": 0,
+      "hallucinationRate": 0,
+      "p50LatencyMs": 16636,
+      "meanLatencyMs": 32076,
+      "tokensPerTurn": 916,
+      "avgTurns": 1.94
+    },
+    "gemini-4-carbon": {
+      "method": "codemode",
+      "model": "gemini-4-carbon",
+      "queriesCount": 79,
+      "accuracy": 62,
+      "searchBlindnessRate": 0,
+      "hallucinationRate": 0,
+      "p50LatencyMs": 102403,
+      "meanLatencyMs": 111934,
+      "tokensPerTurn": 963,
+      "avgTurns": 1.94
     }
   }
 }

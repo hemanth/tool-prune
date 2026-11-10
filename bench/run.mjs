@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TOOLS_30, TOOLS_60 } from './catalog.mjs';
 import { CASES_30, CASES_60 } from './cases.mjs';
@@ -20,9 +21,33 @@ if (API_KEY === undefined) {
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+const VERTEX_PROJECT =
+  process.env.VERTEX_PROJECT ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  (() => {
+    try {
+      return execSync('gcloud config get-value project', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return '';
+    }
+  })();
+
+let cachedVertexToken = process.env.VERTEX_ACCESS_TOKEN || null;
+let cachedVertexTokenAt = cachedVertexToken ? Date.now() : 0;
+
+function getVertexToken(forceRefresh = false) {
+  if (!forceRefresh && cachedVertexToken && Date.now() - cachedVertexTokenAt < 45 * 60 * 1000) {
+    return cachedVertexToken;
+  }
+  cachedVertexToken = execSync('gcloud auth print-access-token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  cachedVertexTokenAt = Date.now();
+  return cachedVertexToken;
+}
 
 const args = process.argv.slice(2);
 const sizeArg = args.includes('--size') ? args[args.indexOf('--size') + 1] : '60';
+const mergeFlag = args.includes('--merge');
 const modelsArg = args.includes('--models')
   ? args[args.indexOf('--models') + 1].split(',').map(s => s.trim()).filter(Boolean)
   : ['claude-haiku-5-5'];
@@ -177,6 +202,57 @@ async function askLLM(modelSpec, toolsSubset, userQuery) {
       inputTokens: data.prompt_eval_count || 0,
       outputTokens: data.eval_count || 0
     };
+  }
+
+  if (modelSpec.startsWith('gemini-') || modelSpec.startsWith('vertex:')) {
+    const geminiModel = modelSpec.startsWith('vertex:') ? modelSpec.slice('vertex:'.length) : modelSpec;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const t0 = performance.now();
+      try {
+        const useApiKey = Boolean(GEMINI_API_KEY && !modelSpec.startsWith('vertex:'));
+        const url = useApiKey
+          ? `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
+          : `https://aiplatform.googleapis.com/v1beta1/projects/${VERTEX_PROJECT}/locations/global/publishers/google/models/${geminiModel}:generateContent`;
+        const headers = { 'Content-Type': 'application/json' };
+        if (!useApiKey) headers.Authorization = `Bearer ${getVertexToken(attempt > 0)}`;
+
+        const resp = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: { maxOutputTokens: 1024, temperature: 0 }
+          })
+        });
+        const latency = performance.now() - t0;
+        if (resp.status === 401 && !useApiKey) {
+          getVertexToken(true);
+          continue;
+        }
+        if (resp.status === 429 || resp.status >= 500) {
+          await sleep(700 * Math.pow(2, attempt));
+          continue;
+        }
+        const data = await resp.json();
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        const rawChoice = parts
+          .filter(p => !p.thought && typeof p.text === 'string')
+          .map(p => p.text)
+          .join('\n')
+          .trim();
+        const inputTokens = data.usageMetadata?.promptTokenCount || 0;
+        const totalTokens = data.usageMetadata?.totalTokenCount || inputTokens;
+        return {
+          choice: rawChoice,
+          latency,
+          inputTokens,
+          outputTokens: Math.max(0, totalTokens - inputTokens)
+        };
+      } catch {
+        await sleep(600 * Math.pow(2, attempt));
+      }
+    }
+    return null;
   }
 
   if (modelSpec.includes('/') && OPENROUTER_API_KEY) {
@@ -493,6 +569,15 @@ async function run() {
     console.log('-'.repeat(92));
   }
 
+  const resultsPath = path.resolve(__dirname, 'results.json');
+  let mergedModels = multiModelSummary;
+  if (mergeFlag && fs.existsSync(resultsPath)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(resultsPath, 'utf8'));
+      mergedModels = { ...(prev.models || {}), ...multiModelSummary };
+    } catch {}
+  }
+
   const outputPayload = {
     evaluatedAt: new Date().toISOString(),
     catalogSize: toolNames.length,
@@ -505,10 +590,10 @@ async function run() {
       turboQuantTop5Recall: Number(tqTop5Recall.toFixed(1)),
       bm25Top3Recall: Number(bm25Top3Recall.toFixed(1))
     },
-    models: multiModelSummary
+    models: mergedModels
   };
 
-  fs.writeFileSync(path.resolve(__dirname, 'results.json'), JSON.stringify(outputPayload, null, 2) + '\n');
+  fs.writeFileSync(resultsPath, JSON.stringify(outputPayload, null, 2) + '\n');
   console.log('\nSaved multi-model empirical results to bench/results.json\n');
 }
 

@@ -126,14 +126,16 @@ Evaluated with Claude Haiku 5.5 (`claude-haiku-5-5`, $B=1,000$ bootstrap 95% CIs
 | **Claude Sonnet 5.5** | 97.5% (843 ms) | 93.7% (854 ms) | **97.5%** (989 ms) | **97.5% (105 ms)** | 50.6% (1,986 ms) |
 | **Claude Fable 5.2** | 97.5% (2,643 ms) | 93.7% (1,804 ms) | 96.2% (3,008 ms) | **97.5% (105 ms)** | 50.6% (4,529 ms) |
 | **Claude Haiku 5.5** | 97.5% (683 ms) | 93.7% (650 ms) | **97.5%** (777 ms) | **97.5% (105 ms)** | 57.0% (1,530 ms) |
+| **Gemini 4 Carbon** | 97.5% (7,575 ms) | 92.4% (7,415 ms) | 96.2% (5,333 ms) | **97.5% (100 ms)** | 62.0% (102,403 ms) |
+| **Gemini 4 Argon** | 97.5% (3,785 ms) | 92.4% (3,676 ms) | 96.2% (4,121 ms) | **97.5% (100 ms)** | 87.3% (16,636 ms) |
 | **Gemma 3 1B (Local)** | 15.2% (353 ms) | **68.4% (252 ms)** | **87.3% (359 ms)** | **96.2% (105 ms)** | N/A |
 
 Run evaluations:
 
 ```bash
 node bench/run_bfcl_eval.mjs
-node bench/run.mjs --size 60 --models claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-2,ollama:gemma3:1b
-node bench/run_codemode_eval.mjs --models claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-2
+node bench/run.mjs --size 60 --models claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-2,gemini-4-argon,gemini-4-carbon,ollama:gemma3:1b
+node bench/run_codemode_eval.mjs --models claude-haiku-5-5,claude-sonnet-5-5,claude-opus-5-5,claude-fable-5-2,gemini-4-argon,gemini-4-carbon
 ```
 
 ## License

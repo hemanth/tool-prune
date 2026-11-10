@@ -1,11 +1,11 @@
 {
-  "evaluatedAt": "2026-11-10T20:05:28.816Z",
+  "evaluatedAt": "2026-11-10T22:10:29.923Z",
   "catalogSize": 60,
   "queriesCount": 79,
   "retrieval": {
-    "typesafeJevTop1": 96.2,
+    "typesafeJevTop1": 94.9,
     "typesafeJevTop3Recall": 100,
-    "typesafeJevP50Ms": 104,
+    "typesafeJevP50Ms": 99,
     "typesafeJevBypassPct": 93.7,
     "turboQuantTop5Recall": 91.1,
     "bm25Top3Recall": 87.3
@@ -401,6 +401,164 @@
         "slices": {
           "direct": 100,
           "overlap": 88.9,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    },
+    "gemini-4-argon": {
+      "model": "gemini-4-argon",
+      "fullContext": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 3785,
+        "meanLatencyMs": 8193,
+        "tokensPerTurn": 1363,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 92.4,
+        "ci95": [
+          87.3,
+          97.5
+        ],
+        "p50LatencyMs": 3676,
+        "meanLatencyMs": 10252,
+        "tokensPerTurn": 207,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 81.5,
+          "ood": 100
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 7244,
+        "meanLatencyMs": 20562,
+        "tokensPerTurn": 425,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "p50LatencyMs": 4121,
+        "meanLatencyMs": 12146,
+        "tokensPerTurn": 554,
+        "slices": {
+          "direct": 100,
+          "overlap": 88.9,
+          "ood": 100
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 100,
+        "meanLatencyMs": 561,
+        "tokensPerTurn": 395,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "bypassedRate": 93.7
+      }
+    },
+    "gemini-4-carbon": {
+      "model": "gemini-4-carbon",
+      "fullContext": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 7575,
+        "meanLatencyMs": 57622,
+        "tokensPerTurn": 1419,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        }
+      },
+      "turboQuantPruneLlm": {
+        "accuracy": 92.4,
+        "ci95": [
+          87.3,
+          97.5
+        ],
+        "p50LatencyMs": 7415,
+        "meanLatencyMs": 48894,
+        "tokensPerTurn": 293,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 81.5,
+          "ood": 100
+        }
+      },
+      "toolSearchBm25Llm": {
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "p50LatencyMs": 8560,
+        "meanLatencyMs": 89417,
+        "tokensPerTurn": 497,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 85.2,
+          "ood": 100
+        }
+      },
+      "toolPruneJevLlm": {
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "p50LatencyMs": 5333,
+        "meanLatencyMs": 50708,
+        "tokensPerTurn": 618,
+        "slices": {
+          "direct": 100,
+          "overlap": 88.9,
+          "ood": 100
+        }
+      },
+      "toolPruneDirect": {
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "p50LatencyMs": 100,
+        "meanLatencyMs": 6676,
+        "tokensPerTurn": 400,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
           "ood": 100
         },
         "bypassedRate": 93.7

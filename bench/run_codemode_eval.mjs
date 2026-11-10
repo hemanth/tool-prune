@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { TOOLS_60 } from './catalog.mjs';
 import { CASES_60 } from './cases.mjs';
@@ -8,12 +9,32 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-if (!ANTHROPIC_API_KEY) {
-  console.error('ANTHROPIC_API_KEY environment variable is required to run Code Mode eval.');
-  process.exit(1);
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+const VERTEX_PROJECT =
+  process.env.VERTEX_PROJECT ||
+  process.env.GOOGLE_CLOUD_PROJECT ||
+  (() => {
+    try {
+      return execSync('gcloud config get-value project', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      return '';
+    }
+  })();
+
+let cachedVertexToken = process.env.VERTEX_ACCESS_TOKEN || null;
+let cachedVertexTokenAt = cachedVertexToken ? Date.now() : 0;
+
+function getVertexToken(forceRefresh = false) {
+  if (!forceRefresh && cachedVertexToken && Date.now() - cachedVertexTokenAt < 45 * 60 * 1000) {
+    return cachedVertexToken;
+  }
+  cachedVertexToken = execSync('gcloud auth print-access-token', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  cachedVertexTokenAt = Date.now();
+  return cachedVertexToken;
 }
 
 const args = process.argv.slice(2);
+const mergeFlag = args.includes('--merge');
 const modelsArg = args.includes('--models')
   ? args[args.indexOf('--models') + 1].split(',').map(s => s.trim()).filter(Boolean)
   : ['claude-haiku-5-5'];
@@ -73,6 +94,82 @@ const codeModeToolsDefinition = [
     }
   }
 ];
+
+const geminiCodeModeTools = [
+  {
+    functionDeclarations: [
+      {
+        name: 'search_tools',
+        description: 'Search the API catalog for available tools and their documentation signatures.',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            query: { type: 'STRING', description: 'Keywords to search for in the tool catalog' }
+          },
+          required: ['query']
+        }
+      },
+      {
+        name: 'execute_code',
+        description: 'Execute JavaScript code in a secure sandbox. Discovered tools are available on the global `api` object (e.g. `await api.<tool_name>({ ... })`).',
+        parameters: {
+          type: 'OBJECT',
+          properties: {
+            code: { type: 'STRING', description: 'JavaScript code to execute' }
+          },
+          required: ['code']
+        }
+      }
+    ]
+  }
+];
+
+async function callGemini(modelSpec, contents, systemPrompt) {
+  const geminiModel = modelSpec.startsWith('vertex:') ? modelSpec.slice('vertex:'.length) : modelSpec;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const t0 = performance.now();
+    try {
+      const useApiKey = Boolean(GEMINI_API_KEY && !modelSpec.startsWith('vertex:'));
+      const url = useApiKey
+        ? `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${GEMINI_API_KEY}`
+        : `https://aiplatform.googleapis.com/v1beta1/projects/${VERTEX_PROJECT}/locations/global/publishers/google/models/${geminiModel}:generateContent`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (!useApiKey) headers.Authorization = `Bearer ${getVertexToken(attempt > 0)}`;
+
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents,
+          tools: geminiCodeModeTools,
+          generationConfig: { maxOutputTokens: 1500, temperature: 0 }
+        })
+      });
+      const latency = performance.now() - t0;
+      if (resp.status === 401 && !useApiKey) {
+        getVertexToken(true);
+        continue;
+      }
+      if (resp.status === 429 || resp.status >= 500) {
+        await sleep(800 * Math.pow(2, attempt));
+        continue;
+      }
+      const data = await resp.json();
+      const inputTokens = data.usageMetadata?.promptTokenCount || 0;
+      const totalTokens = data.usageMetadata?.totalTokenCount || inputTokens;
+      return {
+        content: data.candidates?.[0]?.content || { role: 'model', parts: [] },
+        latency,
+        inputTokens,
+        outputTokens: Math.max(0, totalTokens - inputTokens)
+      };
+    } catch {
+      await sleep(700 * Math.pow(2, attempt));
+    }
+  }
+  return { content: { role: 'model', parts: [] }, latency: 0, inputTokens: 0, outputTokens: 0 };
+}
 
 async function callClaude(model, messages, systemPrompt) {
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -157,59 +254,119 @@ IMPORTANT: You must search the catalog first if you are not certain of the exact
       let hallucinatedApi = false;
       let success = false;
 
-      // --- TURN 1 ---
-      const messages = [{ role: 'user', content: test.query }];
-      const turn1 = await callClaude(model, messages, systemPrompt);
-      totalLatency += turn1.latency;
-      totalTokens += turn1.inputTokens + turn1.outputTokens;
-      turnsUsed = 1;
+      const isGemini = model.startsWith('gemini-') || model.startsWith('vertex:');
 
-      const toolCalls1 = (turn1.data.content || []).filter(c => c.type === 'tool_use');
-      const searchCall = toolCalls1.find(tc => tc.name === 'search_tools');
-      const execCall1 = toolCalls1.find(tc => tc.name === 'execute_code');
+      if (isGemini) {
+        const contents = [{ role: 'user', parts: [{ text: test.query }] }];
+        const turn1 = await callGemini(model, contents, systemPrompt);
+        totalLatency += turn1.latency;
+        totalTokens += turn1.inputTokens + turn1.outputTokens;
+        turnsUsed = 1;
 
-      if (test.type === 'ood' && toolCalls1.length === 0) {
-        // Correctly abstained from calling a tool on OOD query
-        success = true;
-      } else if (execCall1 && !searchCall) {
-        skippedSearch = true;
-        const code = execCall1.input?.code || '';
-        apiCalled = extractApiCall(code);
-        hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
-        success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
-      } else if (searchCall) {
-        const searchQuery = searchCall.input?.query || '';
-        const searchMatches = searchTools(searchQuery, 5);
-        searchFoundTarget = searchMatches.some(m => m.name === test.target);
+        const fnCalls1 = (turn1.content.parts || []).filter(p => p.functionCall).map(p => p.functionCall);
+        const searchCall = fnCalls1.find(fc => fc.name === 'search_tools');
+        const execCall1 = fnCalls1.find(fc => fc.name === 'execute_code');
 
-        // --- TURN 2 ---
-        messages.push({ role: 'assistant', content: turn1.data.content });
-        messages.push({
-          role: 'user',
-          content: [
-            {
-              type: 'tool_result',
-              tool_use_id: searchCall.id,
-              content: JSON.stringify(searchMatches.map(m => ({ tool: m.name, description: m.description })))
-            }
-          ]
-        });
-
-        const turn2 = await callClaude(model, messages, systemPrompt);
-        totalLatency += turn2.latency;
-        totalTokens += turn2.inputTokens + turn2.outputTokens;
-        turnsUsed = 2;
-
-        const toolCalls2 = (turn2.data.content || []).filter(c => c.type === 'tool_use');
-        const execCall2 = toolCalls2.find(tc => tc.name === 'execute_code');
-
-        if (test.type === 'ood' && !execCall2) {
+        if (test.type === 'ood' && fnCalls1.length === 0) {
           success = true;
-        } else if (execCall2) {
-          const code = execCall2.input?.code || '';
+        } else if (execCall1 && !searchCall) {
+          skippedSearch = true;
+          const code = execCall1.args?.code || '';
           apiCalled = extractApiCall(code);
           hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
           success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
+        } else if (searchCall) {
+          const searchQuery = searchCall.args?.query || '';
+          const searchMatches = searchTools(searchQuery, 5);
+          searchFoundTarget = searchMatches.some(m => m.name === test.target);
+
+          contents.push(turn1.content);
+          contents.push({
+            role: 'user',
+            parts: [
+              {
+                functionResponse: {
+                  name: 'search_tools',
+                  ...(searchCall.id ? { id: searchCall.id } : {}),
+                  response: {
+                    matches: searchMatches.map(m => ({ tool: m.name, description: m.description }))
+                  }
+                }
+              }
+            ]
+          });
+
+          const turn2 = await callGemini(model, contents, systemPrompt);
+          totalLatency += turn2.latency;
+          totalTokens += turn2.inputTokens + turn2.outputTokens;
+          turnsUsed = 2;
+
+          const fnCalls2 = (turn2.content.parts || []).filter(p => p.functionCall).map(p => p.functionCall);
+          const execCall2 = fnCalls2.find(fc => fc.name === 'execute_code');
+
+          if (test.type === 'ood' && !execCall2) {
+            success = true;
+          } else if (execCall2) {
+            const code = execCall2.args?.code || '';
+            apiCalled = extractApiCall(code);
+            hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
+            success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
+          }
+        }
+      } else {
+        // --- TURN 1 (Anthropic) ---
+        const messages = [{ role: 'user', content: test.query }];
+        const turn1 = await callClaude(model, messages, systemPrompt);
+        totalLatency += turn1.latency;
+        totalTokens += turn1.inputTokens + turn1.outputTokens;
+        turnsUsed = 1;
+
+        const toolCalls1 = (turn1.data.content || []).filter(c => c.type === 'tool_use');
+        const searchCall = toolCalls1.find(tc => tc.name === 'search_tools');
+        const execCall1 = toolCalls1.find(tc => tc.name === 'execute_code');
+
+        if (test.type === 'ood' && toolCalls1.length === 0) {
+          success = true;
+        } else if (execCall1 && !searchCall) {
+          skippedSearch = true;
+          const code = execCall1.input?.code || '';
+          apiCalled = extractApiCall(code);
+          hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
+          success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
+        } else if (searchCall) {
+          const searchQuery = searchCall.input?.query || '';
+          const searchMatches = searchTools(searchQuery, 5);
+          searchFoundTarget = searchMatches.some(m => m.name === test.target);
+
+          // --- TURN 2 ---
+          messages.push({ role: 'assistant', content: turn1.data.content });
+          messages.push({
+            role: 'user',
+            content: [
+              {
+                type: 'tool_result',
+                tool_use_id: searchCall.id,
+                content: JSON.stringify(searchMatches.map(m => ({ tool: m.name, description: m.description })))
+              }
+            ]
+          });
+
+          const turn2 = await callClaude(model, messages, systemPrompt);
+          totalLatency += turn2.latency;
+          totalTokens += turn2.inputTokens + turn2.outputTokens;
+          turnsUsed = 2;
+
+          const toolCalls2 = (turn2.data.content || []).filter(c => c.type === 'tool_use');
+          const execCall2 = toolCalls2.find(tc => tc.name === 'execute_code');
+
+          if (test.type === 'ood' && !execCall2) {
+            success = true;
+          } else if (execCall2) {
+            const code = execCall2.input?.code || '';
+            apiCalled = extractApiCall(code);
+            hallucinatedApi = Boolean(apiCalled && !TOOLS_60[apiCalled]);
+            success = test.type === 'ood' ? (!apiCalled || apiCalled === 'unsupported_or_none') : apiCalled === test.target;
+          }
         }
       }
 
@@ -261,9 +418,18 @@ IMPORTANT: You must search the catalog first if you are not certain of the exact
     };
   }
 
+  const codemodePath = path.resolve(__dirname, 'codemode_results.json');
+  let mergedSummaries = allSummaries;
+  if (mergeFlag && fs.existsSync(codemodePath)) {
+    try {
+      const prev = JSON.parse(fs.readFileSync(codemodePath, 'utf8'));
+      mergedSummaries = { ...(prev.models || {}), ...allSummaries };
+    } catch {}
+  }
+
   fs.writeFileSync(
-    path.resolve(__dirname, 'codemode_results.json'),
-    JSON.stringify({ evaluatedAt: new Date().toISOString(), models: allSummaries }, null, 2) + '\n'
+    codemodePath,
+    JSON.stringify({ evaluatedAt: new Date().toISOString(), models: mergedSummaries }, null, 2) + '\n'
   );
   console.log('\nSaved Code Mode results to bench/codemode_results.json\n');
 }
