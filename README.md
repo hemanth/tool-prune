@@ -49,7 +49,7 @@ const response = await llm.chat({
 });
 ```
 
-`filter()` selects candidate tools dynamically using uncertainty-aware drop-off, cutting prompt schema tokens by up to 98% while preserving 100% Top-5 recall on BFCL v3. Pass `{ allowEmpty: true }` to return `[]` on out-of-domain chat prompts.
+`filter()` selects candidate tools dynamically using uncertainty-aware drop-off, cutting prompt schema tokens by up to 98% while preserving 99.0%–100.0% Top-5 recall across all 200 BFCL v3 `multiple` queries. Pass `{ allowEmpty: true }` to return `[]` on out-of-domain chat prompts.
 
 ## Fast-path direct dispatch
 
@@ -93,17 +93,17 @@ router = prune(tools)
 candidates = router.filter(user_prompt, allow_empty=True)
 ```
 
-## Berkeley Function Calling Leaderboard (BFCL v3)
+## BFCL v3 Tool Retrieval & Schema Pruning (`N = 200`)
 
-Evaluated on Gorilla BFCL v3 multiple-tool benchmark:
+Evaluated across all `200` queries and `443` unique tool schemas of the Gorilla `BFCL_v3_multiple` dataset (measuring tool-name retrieval and candidate recall prior to LLM argument generation, against a pre-indexed `camelCase`/`snake_case`-splitting BM25 baseline):
 
-| Engine | Backend | Distractor Top-1 | 100-Tool Top-5 Prune | Latency | Network |
-|---|---|---|---|---|---|
-| **TypeSafe (Jev)** | Cloud System One | **100.0%** | **100.0%** | 182 ms | Cloud API |
-| **TurboQuant** | Python Rust (`turbovec`) | **100.0%** | **100.0%** | 0.041 ms | Offline |
-| **TurboQuant** | Pure JS (built-in) | **100.0%** | **100.0%** | 0.10 ms | Offline |
-| **TurboQuant** | Pure Python (stdlib) | **100.0%** | **100.0%** | 1.35 ms | Offline |
-| *BM25 (Baseline)* | Lexical search | 88.3% | 95.0% | 1.30 ms | Offline |
+| Engine | Backend | Distractor Top-1 (`2–4`) | 100-Tool Top-5 | 443-Tool Top-5 | 100-Tool Latency | Network |
+|---|---|---|---|---|---|---|
+| **TypeSafe (Jev)** | Cloud System One | **99.5%** | **100.0%** | **99.5%** | 84 ms | Cloud API |
+| **TurboQuant** | Python Rust (`turbovec`) | **99.0%** | **99.0%** | **97.5%** | 0.040 ms (`0.16 ms` E2E) | Offline |
+| **TurboQuant** | Pure JS (built-in) | **99.0%** | **99.0%** | **96.5%** | 0.11 ms | Offline |
+| **TurboQuant** | Pure Python (stdlib) | **99.0%** | **99.0%** | **97.0%** | 0.93 ms | Offline |
+| *BM25 (Baseline)* | Identifier-split lexical | 94.5% | 97.5% | 93.5% | 0.04 ms | Offline |
 
 ## End-to-End Agent Architecture Benchmark (60 Tools, 79 Queries)
 

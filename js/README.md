@@ -26,7 +26,7 @@ console.log(match.confidence); // 0.815
 console.log(match.engine);     // 'turboquant'
 ```
 
-`prune()` runs offline via 4-bit PolarQuant + 1024-bit QJL TurboQuant (`0.18 ms`, 100% BFCL v3 Top-1 and 100-Tool Top-5 recall) by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is set. Accepts plain dicts, MCP `inputSchema`, Anthropic `input_schema`, and OpenAI `{ type: 'function', function }` tool arrays.
+`prune()` runs offline via 4-bit PolarQuant + 1024-bit QJL TurboQuant (`0.11 ms`, 99.0% BFCL v3 Top-1 and 99.0% 100-Tool Top-5 recall across all `N = 200` `BFCL_v3_multiple` queries) by default, or routes to TypeSafe System One when `TYPESAFE_API_KEY` is set. Accepts plain dicts, MCP `inputSchema`, Anthropic `input_schema`, and OpenAI `{ type: 'function', function }` tool arrays.
 
 ## Schema pruning for LLMs
 

@@ -200,6 +200,19 @@ class ToolPrune:
             )
 
         state = {"intent": query} if isinstance(query, str) else query
+        active_criteria = self.criteria
+        if len(self.registry) > 250:
+            if self._tq_engine is None:
+                self._tq_engine = TurboQuantEngine()
+                self._tq_engine.fit(self.registry)
+            q_str = query if isinstance(query, str) else (query.get("intent") or query.get("query") or json.dumps(query))
+            shortlisted = self._tq_engine.search(q_str, top_k=200)
+            active_criteria = {
+                item["name"]: self.criteria[item["name"]]
+                for item in shortlisted
+                if item["name"] in self.criteria
+            }
+
         body = {
             "model": opts.get("model", self.model),
             "state": state,
@@ -207,7 +220,7 @@ class ToolPrune:
                 "tool": {
                     "type": "choice",
                     "instructions": opts.get("instructions", "Which specific tool is required to satisfy this intent?"),
-                    "criteria": self.criteria,
+                    "criteria": active_criteria,
                 },
                 "requires_generation": {
                     "type": "noul",

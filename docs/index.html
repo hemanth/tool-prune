@@ -305,7 +305,7 @@
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-lavender-100 text-lavender-800 border border-lavender-200">
           <span class="w-1.5 h-1.5 rounded-full bg-lavender-700"></span>
-          100% BFCL v3 Top-1
+          99.5% BFCL v3 Retrieval (N=200)
         </span>
         <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-medium bg-sky-100 text-sky-800 border border-sky-200">
           <span class="w-1.5 h-1.5 rounded-full bg-sky-700"></span>
@@ -676,17 +676,17 @@
     </div>
   </section>
 
-  <!-- Berkeley Function Calling Benchmark (BFCL v3) -->
+  <!-- BFCL v3 Tool Retrieval & Schema Pruning -->
   <section id="benchmarks" class="scroll-mt-20 py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto border-t border-ink-200/60">
     <div class="max-w-3xl mb-8">
       <div class="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider text-sage-800 font-semibold mb-2">
-        Empirical Evaluation
+        Empirical Evaluation (Full N = 200 Split)
       </div>
       <h2 class="text-3xl sm:text-4xl font-bold tracking-tight text-ink-900">
-        Berkeley Function Calling Benchmark (BFCL v3)
+        BFCL v3 Tool Retrieval &amp; Schema Pruning
       </h2>
       <p class="text-ink-700 text-sm mt-1">
-        Evaluated on the Gorilla BFCL v3 multiple-tool dataset across 100 tool schemas and subtle distractor intents.
+        Evaluated across all 200 queries and 443 unique tool schemas in Gorilla <code class="font-mono text-xs text-ink-800">BFCL_v3_multiple</code> (measuring tool-name retrieval and candidate schema recall prior to LLM argument generation, against a pre-indexed <code class="font-mono text-xs text-ink-800">camelCase</code>/<code class="font-mono text-xs text-ink-800">snake_case</code>-splitting BM25 baseline).
       </p>
     </div>
 
@@ -698,9 +698,10 @@
             <tr class="bg-canvas border-b border-ink-200 text-xs font-mono text-ink-600 uppercase">
               <th class="py-3.5 px-4 sm:px-6">Engine</th>
               <th class="py-3.5 px-4">Backend</th>
-              <th class="py-3.5 px-4">Distractor Top-1</th>
-              <th class="py-3.5 px-4">100-Tool Top-5 Prune</th>
-              <th class="py-3.5 px-4">Search Latency</th>
+              <th class="py-3.5 px-4">Distractor Top-1 (2–4)</th>
+              <th class="py-3.5 px-4">100-Tool Top-5</th>
+              <th class="py-3.5 px-4">443-Tool Top-5</th>
+              <th class="py-3.5 px-4">100-Tool Latency</th>
               <th class="py-3.5 px-4">Network</th>
             </tr>
           </thead>
@@ -711,9 +712,10 @@
                 TypeSafe (Jev)
               </td>
               <td class="py-4 px-4 text-ink-700">Cloud System One</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.5%</td>
               <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 text-ink-900">182 ms</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.5%</td>
+              <td class="py-4 px-4 text-ink-900">84 ms</td>
               <td class="py-4 px-4 text-ink-600">Cloud API</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -722,9 +724,10 @@
                 TurboQuant (Python)
               </td>
               <td class="py-4 px-4 text-ink-700">Rust SIMD (turbovec)</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.041 ms</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">97.5%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.040 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -733,9 +736,10 @@
                 TurboQuant (JS)
               </td>
               <td class="py-4 px-4 text-ink-700">Pure JS (built-in)</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">0.10 ms</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">96.5%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.11 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors">
@@ -744,9 +748,10 @@
                 TurboQuant (Python)
               </td>
               <td class="py-4 px-4 text-ink-700">Pure Python (stdlib)</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-emerald-700">100.0%</td>
-              <td class="py-4 px-4 font-bold text-sage-800">1.35 ms</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">99.0%</td>
+              <td class="py-4 px-4 font-bold text-emerald-700">97.0%</td>
+              <td class="py-4 px-4 font-bold text-sage-800">0.93 ms</td>
               <td class="py-4 px-4 text-emerald-700 font-semibold">Offline</td>
             </tr>
             <tr class="hover:bg-canvas transition-colors text-ink-500">
@@ -754,10 +759,11 @@
                 <span class="w-2 h-2 rounded-full bg-ink-400"></span>
                 BM25 Baseline
               </td>
-              <td class="py-4 px-4 text-ink-500">Lexical Inverted Index</td>
-              <td class="py-4 px-4 text-ink-700">88.3%</td>
-              <td class="py-4 px-4 text-ink-700">95.0%</td>
-              <td class="py-4 px-4 text-ink-700">1.30 ms</td>
+              <td class="py-4 px-4 text-ink-500">Identifier-Split Lexical</td>
+              <td class="py-4 px-4 text-ink-700">94.5%</td>
+              <td class="py-4 px-4 text-ink-700">97.5%</td>
+              <td class="py-4 px-4 text-ink-700">93.5%</td>
+              <td class="py-4 px-4 text-ink-700">0.04 ms</td>
               <td class="py-4 px-4 text-ink-500">Offline</td>
             </tr>
           </tbody>

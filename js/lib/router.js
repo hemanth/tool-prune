@@ -166,6 +166,22 @@ export class ToolPruner {
     }
 
     const state = typeof query === 'string' ? { intent: query } : query;
+    let activeCriteria = this.criteria;
+    if (this.registry.size > 250) {
+      if (!this._tqEngine) {
+        this._tqEngine = new TurboQuantEngine();
+        this._tqEngine.fit(this.registry);
+      }
+      const qStr = typeof query === 'string' ? query : (query?.intent || query?.query || JSON.stringify(query));
+      const shortlisted = this._tqEngine.search(qStr, 200);
+      activeCriteria = {};
+      for (const item of shortlisted) {
+        if (this.criteria[item.name] !== undefined) {
+          activeCriteria[item.name] = this.criteria[item.name];
+        }
+      }
+    }
+
     const body = {
       model: options.model || this.model,
       state,
@@ -173,7 +189,7 @@ export class ToolPruner {
         tool: {
           type: 'choice',
           instructions: options.instructions || 'Which specific tool is required to satisfy this intent?',
-          criteria: this.criteria
+          criteria: activeCriteria
         },
         requires_generation: {
           type: 'noul',

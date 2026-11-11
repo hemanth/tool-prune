@@ -13,17 +13,20 @@ try {
   TurboSearch = mod.TurboSearch;
 } catch {}
 
-// Optional TypeSafe API Key
+// Optional TypeSafe API Key (env or local .env)
 let API_KEY = process.env.TYPESAFE_API_KEY;
-if (API_KEY === undefined) {
+if (!API_KEY) {
   try {
-    const envContent = fs.readFileSync(path.resolve(__dirname, '../../tc39-typesafe/.env'), 'utf8');
-    const match = envContent.match(/TYPESAFE_API_KEY=(.+)/);
+    const envContent = fs.readFileSync(path.resolve(__dirname, '../.env'), 'utf8');
+    const match = envContent.match(/^TYPESAFE_API_KEY=(.+)$/m);
     if (match) API_KEY = match[1].trim();
   } catch {}
 }
 
-// Load BFCL dataset
+const limitArgIdx = process.argv.indexOf('--limit');
+const LIMIT = limitArgIdx !== -1 ? Number(process.argv[limitArgIdx + 1]) : Infinity;
+
+// Load official Gorilla BFCL v3 multiple dataset
 const bfclPath = path.resolve(__dirname, 'bfcl_dataset/BFCL_v3_multiple.json');
 const ansPath = path.resolve(__dirname, 'bfcl_dataset/BFCL_v3_multiple_answers.json');
 
@@ -43,22 +46,36 @@ for (const a of answersRaw) {
   answerMap.set(a.id, targets);
 }
 
-// Build global pool of unique tools from BFCL
+function toToolEntry(fn) {
+  const paramKeys = Object.keys(fn.parameters?.properties || {});
+  return {
+    name: fn.name,
+    description: fn.description || fn.name,
+    parameters: fn.parameters,
+    criteria: `${fn.description || ''} ${paramKeys.join(' ')}`.trim()
+  };
+}
+
+// Build global pool of all 443 unique tool names in BFCL_v3_multiple
+// (merging variant descriptions when a generic name recurs across rows)
 const globalToolsMap = new Map();
 for (const q of questions) {
   for (const fn of q.function) {
+    const entry = toToolEntry(fn);
     if (!globalToolsMap.has(fn.name)) {
-      globalToolsMap.set(fn.name, {
-        name: fn.name,
-        description: fn.description || fn.name,
-        parameters: fn.parameters,
-        criteria: `${fn.description || ''} ${Object.keys(fn.parameters?.properties || {}).join(' ')}`
-      });
+      globalToolsMap.set(fn.name, entry);
+    } else {
+      const existing = globalToolsMap.get(fn.name);
+      if (entry.description && !existing.description.includes(entry.description)) {
+        existing.description = `${existing.description} ${entry.description}`.trim();
+        existing.criteria = `${existing.criteria} ${entry.criteria}`.trim();
+      }
     }
   }
 }
+const globalAllTools = Array.from(globalToolsMap.values());
 
-// Filter dataset to 60 representative queries with single valid target
+// All valid single-target multi-tool test items (N = 200 across BFCL_v3_multiple)
 const validTestSet = [];
 for (const q of questions) {
   const targets = answerMap.get(q.id) || [];
@@ -67,19 +84,34 @@ for (const q of questions) {
       id: q.id,
       query: q.question[0][0].content,
       target: targets[0],
-      candidates: q.function.map(f => ({
-        name: f.name,
-        description: f.description || '',
-        parameters: f.parameters,
-        criteria: `${f.description || ''} ${Object.keys(f.parameters?.properties || {}).join(' ')}`
-      }))
+      candidates: q.function.map(toToolEntry)
     });
   }
 }
 
-const EVAL_SET = validTestSet.slice(0, 60);
+const EVAL_SET = validTestSet.slice(0, LIMIT);
 
-// Simple concurrency runner
+// Deterministic 100-tool catalog builder: includes the query's exact local candidate
+// schemas (2-4 tools) plus deterministic distractors from the global BFCL pool up to 100 tools.
+function buildCatalog100(test, idx) {
+  const map = new Map();
+  for (const c of test.candidates) {
+    map.set(c.name, c);
+  }
+  const totalGlobal = globalAllTools.length;
+  let cursor = (idx * 37) % totalGlobal;
+  let scanned = 0;
+  while (map.size < 100 && scanned < totalGlobal) {
+    const cand = globalAllTools[cursor];
+    if (!map.has(cand.name)) {
+      map.set(cand.name, cand);
+    }
+    cursor = (cursor + 1) % totalGlobal;
+    scanned++;
+  }
+  return Array.from(map.values());
+}
+
 async function pMap(array, fn, concurrency = 5) {
   const results = new Array(array.length);
   let index = 0;
@@ -93,75 +125,120 @@ async function pMap(array, fn, concurrency = 5) {
   return results;
 }
 
-// BM25 helper
-function bm25Rank(query, candidateList) {
-  const tokenize = str => str.toLowerCase().replace(/[^a-z0-9_]/g, ' ').split(/\s+/).filter(Boolean);
-  const qTokens = tokenize(query);
-  const docs = candidateList.map(c => `${c.name} ${c.description} ${c.criteria}`);
-  const docTokensList = docs.map(d => tokenize(d));
-  const avgdl = docTokensList.reduce((acc, t) => acc + t.length, 0) / (docs.length || 1);
+// Fair BM25 baseline: splits camelCase, snake_case, and dotted tool names
+function tokenizeIdentifierAware(str) {
+  return String(str || '')
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
 
-  const scores = candidateList.map((c, i) => {
-    const docTokens = docTokensList[i];
-    const tfMap = new Map();
-    for (const t of docTokens) tfMap.set(t, (tfMap.get(t) || 0) + 1);
+function buildBm25Index(candidateList) {
+  const docTokensList = candidateList.map(c =>
+    tokenizeIdentifierAware(`${c.name} ${c.description} ${c.criteria}`)
+  );
+  const N = candidateList.length || 1;
+  const avgdl = docTokensList.reduce((acc, t) => acc + t.length, 0) / N;
+  const dfMap = new Map();
+  const tfMaps = docTokensList.map(tokens => {
+    const tf = new Map();
+    const seen = new Set();
+    for (const t of tokens) {
+      tf.set(t, (tf.get(t) || 0) + 1);
+      if (!seen.has(t)) {
+        seen.add(t);
+        dfMap.set(t, (dfMap.get(t) || 0) + 1);
+      }
+    }
+    return tf;
+  });
+  return { candidateList, docTokensList, tfMaps, dfMap, avgdl, N };
+}
 
+function queryBm25Index(index, query, topK = 5) {
+  const qTokens = tokenizeIdentifierAware(query);
+  const { candidateList, docTokensList, tfMaps, dfMap, avgdl, N } = index;
+  const scores = new Array(N);
+  for (let i = 0; i < N; i++) {
+    const tfMap = tfMaps[i];
+    const dl = docTokensList[i].length;
     let score = 0;
     for (const qt of qTokens) {
       const tf = tfMap.get(qt) || 0;
       if (tf === 0) continue;
-      const docCount = docTokensList.filter(dt => dt.includes(qt)).length;
-      const idf = Math.log(1 + (docs.length - docCount + 0.5) / (docCount + 0.5));
-      score += idf * (tf * 2.5) / (tf + 1.5 * (0.25 + 0.75 * (docTokens.length / avgdl)));
+      const df = dfMap.get(qt) || 0;
+      const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
+      score += (idf * (tf * 2.5)) / (tf + 1.5 * (0.25 + 0.75 * (dl / avgdl)));
     }
-    return { name: c.name, score };
-  });
-
+    scores[i] = { name: candidateList[i].name, score };
+  }
   scores.sort((a, b) => b.score - a.score);
-  return scores.map(s => s.name);
+  return scores.slice(0, topK).map(s => s.name);
+}
+
+async function queryJev(query, criteriaObj) {
+  const t0 = performance.now();
+  const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'jev-latest',
+      state: { user_intent: query },
+      questions: {
+        tool: {
+          type: 'choice',
+          instructions: 'Which specific tool is required to satisfy this intent?',
+          criteria: criteriaObj
+        }
+      }
+    })
+  });
+  const latency = performance.now() - t0;
+  if (!resp.ok) {
+    throw new Error(`TypeSafe HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  const probs = data.answers?.tool?.probabilities || {};
+  const ranked = Object.entries(probs).sort((a, b) => b[1] - a[1]).map(([k]) => k);
+  const choice = data.answers?.tool?.choice || ranked[0] || '';
+  return { choice, ranked, latency };
 }
 
 async function runBFCLBenchmark() {
   console.log('==============================================================================');
-  console.log(`BERKELEY FUNCTION CALLING LEADERBOARD (BFCL) EMPIRICAL EVALUATION`);
-  console.log(`Dataset: Gorilla BFCL_v3_multiple | 60 Evaluated Queries`);
+  console.log('BFCL v3 TOOL RETRIEVAL & SCHEMA PRUNING BENCHMARK');
+  console.log(`Dataset: Gorilla BFCL_v3_multiple | N = ${EVAL_SET.length}/${validTestSet.length} Queries | ${globalAllTools.length} Unique Tools`);
+  console.log('Note: Evaluates tool-name retrieval (Top-1) & schema pruning recall (Top-3/5),');
+  console.log('      not end-to-end LLM argument AST generation.');
   console.log('==============================================================================\n');
 
-  console.log('Running evaluation across 60 BFCL queries...');
+  // Pre-build static full-pool (443 unique tools) indices once
+  const globalAllMap = Object.fromEntries(globalAllTools.map(t => [t.name, t]));
+  const globalTq443 = new TurboQuantSearch();
+  globalTq443.index(globalAllMap);
+  const globalBm25_443 = buildBm25Index(globalAllTools);
 
-  // Setup Global 100-tool index for Retrieval test
-  const global100Tools = Array.from(globalToolsMap.values()).slice(0, 100);
-  const global100Map = Object.fromEntries(global100Tools.map(t => [t.name, t]));
-
-  // Setup turboquant-search (WASM) on global 100 tools
-  let globalTsWasm = null;
+  let globalWasm443 = null;
   if (TurboSearch) {
-    globalTsWasm = await TurboSearch.from(global100Tools, {
+    globalWasm443 = await TurboSearch.from(globalAllTools, {
       fields: ['name', 'description', 'criteria'],
       dim: 384,
       bits: 3
     });
   }
 
-  // Setup built-in TurboQuant on global 100 tools
-  const globalTqBuiltin = new TurboQuantSearch();
-  globalTqBuiltin.index(global100Map);
-
-  // Setup criteria for 100 tools for Jev
-  const criteria100 = {};
-  for (const t of global100Tools) criteria100[t.name] = t.criteria;
-
   const results = await pMap(EVAL_SET, async (test, idx) => {
-    process.stdout.write(`Evaluating [${idx + 1}/${EVAL_SET.length}]... \r`);
+    process.stdout.write(`Evaluating [${idx + 1}/${EVAL_SET.length}]...\r`);
 
-    // --- TEST 1: Local Distractor Resolution (Picking target among 2-4 candidate tools) ---
-    // 1. BM25 on candidates
+    // --- TEST 1: Local Distractor Selection (2-4 tools) ---
+    const localBm25 = buildBm25Index(test.candidates);
     const bm25CandT0 = performance.now();
-    const bm25Candidates = bm25Rank(test.query, test.candidates);
+    const bm25CandRes = queryBm25Index(localBm25, test.query, test.candidates.length);
     const bm25DistractorLatency = performance.now() - bm25CandT0;
-    const bm25DistractorTop1 = bm25Candidates[0] === test.target;
+    const bm25DistractorTop1 = bm25CandRes[0] === test.target;
 
-    // 2. Pure JS TurboQuant on candidates
     const localTq = new TurboQuantSearch();
     localTq.index(Object.fromEntries(test.candidates.map(c => [c.name, c])));
     const tqCandT0 = performance.now();
@@ -169,7 +246,6 @@ async function runBFCLBenchmark() {
     const tqDistractorLatency = performance.now() - tqCandT0;
     const tqDistractorTop1 = tqCandidateRes[0]?.name === test.target;
 
-    // 3. turboquant-search (WASM) on candidates
     let wasmDistractorTop1 = false;
     let wasmDistractorLatency = 0;
     if (TurboSearch) {
@@ -185,103 +261,108 @@ async function runBFCLBenchmark() {
       tsLocal.destroy();
     }
 
-    // 4. TypeSafe Jev on candidates
     let jevDistractorTop1 = false;
-    let jevLatency = 140;
+    let jevDistractorLatency = 0;
     if (API_KEY) {
-      const t0 = performance.now();
-      const candCriteria = {};
-      for (const c of test.candidates) candCriteria[c.name] = c.criteria;
-
+      const candCriteria = Object.fromEntries(test.candidates.map(c => [c.name, c.criteria]));
       try {
-        const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'jev-latest',
-            state: { user_intent: test.query },
-            questions: {
-              tool: {
-                type: 'choice',
-                instructions: 'Which specific tool is required to satisfy this intent?',
-                criteria: candCriteria
-              }
-            }
-          })
-        });
-        jevLatency = performance.now() - t0;
-        const data = await resp.json();
-        jevDistractorTop1 = data.answers?.tool?.choice === test.target;
+        const jRes = await queryJev(test.query, candCriteria);
+        jevDistractorTop1 = jRes.choice === test.target;
+        jevDistractorLatency = jRes.latency;
       } catch {}
     }
 
-    // --- TEST 2: Global 100-Tool Schema Pruning ---
-    const targetIn100 = global100Tools.some(t => t.name === test.target);
+    // --- TEST 2: Deterministic 100-Tool Schema Pruning (N = 200, 0 skipped) ---
+    const catalog100 = buildCatalog100(test, idx);
+    const catalog100Map = Object.fromEntries(catalog100.map(t => [t.name, t]));
 
-    // 1. TypeSafe Jev on Global 100 tools
-    let jevGlobalTop1 = false, jevGlobalTop3 = false, jevGlobalTop5 = false, jevGlobalLatency = 0;
-    if (API_KEY && targetIn100) {
+    const tq100 = new TurboQuantSearch();
+    tq100.index(catalog100Map);
+    const tq100T0 = performance.now();
+    const tq100Res = tq100.search(test.query, 5);
+    const tq100Latency = performance.now() - tq100T0;
+    const tq100Top1 = tq100Res[0]?.name === test.target;
+    const tq100Top3 = tq100Res.slice(0, 3).some(r => r.name === test.target);
+    const tq100Top5 = tq100Res.some(r => r.name === test.target);
+
+    const bm25_100 = buildBm25Index(catalog100);
+    const bm25_100T0 = performance.now();
+    const bm25_100Res = queryBm25Index(bm25_100, test.query, 5);
+    const bm25_100Latency = performance.now() - bm25_100T0;
+    const bm25_100Top1 = bm25_100Res[0] === test.target;
+    const bm25_100Top3 = bm25_100Res.slice(0, 3).includes(test.target);
+    const bm25_100Top5 = bm25_100Res.includes(test.target);
+
+    let wasm100Top1 = false, wasm100Top3 = false, wasm100Top5 = false, wasm100Latency = 0;
+    if (TurboSearch) {
+      const ts100 = await TurboSearch.from(catalog100, {
+        fields: ['name', 'description', 'criteria'],
+        dim: 384,
+        bits: 3
+      });
       const t0 = performance.now();
+      const wRes = await ts100.search(test.query, { topK: 5 });
+      wasm100Latency = performance.now() - t0;
+      wasm100Top1 = wRes[0]?.data?.name === test.target;
+      wasm100Top3 = wRes.slice(0, 3).some(r => r.data?.name === test.target);
+      wasm100Top5 = wRes.some(r => r.data?.name === test.target);
+      ts100.destroy();
+    }
+
+    let jev100Top1 = false, jev100Top3 = false, jev100Top5 = false, jev100Latency = 0;
+    if (API_KEY) {
+      const crit100 = Object.fromEntries(catalog100.map(t => [t.name, t.criteria]));
       try {
-        const resp = await fetch('https://api.typesafe.ai/v1/systemone', {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: 'jev-latest',
-            state: { user_intent: test.query },
-            questions: {
-              tool: {
-                type: 'choice',
-                instructions: 'Which specific tool is required to satisfy this intent?',
-                criteria: criteria100
-              }
-            }
-          })
-        });
-        jevGlobalLatency = performance.now() - t0;
-        const data = await resp.json();
-        const probs = data.answers?.tool?.probabilities || {};
-        const sorted = Object.entries(probs).sort((a, b) => b[1] - a[1]);
-        jevGlobalTop1 = data.answers?.tool?.choice === test.target;
-        jevGlobalTop3 = sorted.slice(0, 3).some(p => p[0] === test.target);
-        jevGlobalTop5 = sorted.slice(0, 5).some(p => p[0] === test.target);
+        const jRes = await queryJev(test.query, crit100);
+        jev100Top1 = jRes.choice === test.target;
+        jev100Top3 = jRes.ranked.slice(0, 3).includes(test.target);
+        jev100Top5 = jRes.ranked.slice(0, 5).includes(test.target);
+        jev100Latency = jRes.latency;
       } catch {}
     }
 
-    // 2. Global TurboQuant WASM
-    let wasmGlobalTop1 = false, wasmGlobalTop3 = false, wasmGlobalTop5 = false, wasmGlobalLatency = 0;
-    if (globalTsWasm && targetIn100) {
+    // --- TEST 3: Full 443-Tool Global Pool Pruning (N = 200) ---
+    const tq443T0 = performance.now();
+    const tq443Res = globalTq443.search(test.query, 5);
+    const tq443Latency = performance.now() - tq443T0;
+    const tq443Top1 = tq443Res[0]?.name === test.target;
+    const tq443Top3 = tq443Res.slice(0, 3).some(r => r.name === test.target);
+    const tq443Top5 = tq443Res.some(r => r.name === test.target);
+
+    const bm443T0 = performance.now();
+    const bm443Res = queryBm25Index(globalBm25_443, test.query, 5);
+    const bm443Latency = performance.now() - bm443T0;
+    const bm443Top1 = bm443Res[0] === test.target;
+    const bm443Top3 = bm443Res.slice(0, 3).includes(test.target);
+    const bm443Top5 = bm443Res.includes(test.target);
+
+    let wasm443Top1 = false, wasm443Top3 = false, wasm443Top5 = false, wasm443Latency = 0;
+    if (globalWasm443) {
       const t0 = performance.now();
-      const gRes = await globalTsWasm.search(test.query, { topK: 5 });
-      wasmGlobalLatency = performance.now() - t0;
-      wasmGlobalTop1 = gRes[0]?.data?.name === test.target;
-      wasmGlobalTop3 = gRes.slice(0, 3).some(r => r.data?.name === test.target);
-      wasmGlobalTop5 = gRes.some(r => r.data?.name === test.target);
+      const wRes = await globalWasm443.search(test.query, { topK: 5 });
+      wasm443Latency = performance.now() - t0;
+      wasm443Top1 = wRes[0]?.data?.name === test.target;
+      wasm443Top3 = wRes.slice(0, 3).some(r => r.data?.name === test.target);
+      wasm443Top5 = wRes.some(r => r.data?.name === test.target);
     }
 
-    // 3. Global TurboQuant Pure JS
-    let tqGlobalTop1 = false, tqGlobalTop3 = false, tqGlobalTop5 = false, tqGlobalLatency = 0;
-    if (targetIn100) {
-      const t0 = performance.now();
-      const gRes = globalTqBuiltin.search(test.query, 5);
-      tqGlobalLatency = performance.now() - t0;
-      tqGlobalTop1 = gRes[0]?.name === test.target;
-      tqGlobalTop3 = gRes.slice(0, 3).some(r => r.name === test.target);
-      tqGlobalTop5 = gRes.some(r => r.name === test.target);
-    }
-
-    // 4. Global BM25
-    let bm25GlobalTop1 = false, bm25GlobalTop3 = false, bm25GlobalTop5 = false, bm25GlobalLatency = 0;
-    if (targetIn100) {
-      const t0 = performance.now();
-      const bmGlobal = bm25Rank(test.query, global100Tools);
-      bm25GlobalLatency = performance.now() - t0;
-      bm25GlobalTop1 = bmGlobal[0] === test.target;
-      bm25GlobalTop3 = bmGlobal.slice(0, 3).includes(test.target);
-      bm25GlobalTop5 = bmGlobal.slice(0, 5).includes(test.target);
+    // Two-stage TurboQuant Top-200 -> TypeSafe Jev for >255 tool catalogs
+    let jev443Top1 = false, jev443Top3 = false, jev443Top5 = false, jev443Latency = 0;
+    if (API_KEY) {
+      const stageT0 = performance.now();
+      const shortlist200 = globalTq443.search(test.query, 200);
+      const crit200 = Object.fromEntries(shortlist200.map(r => [r.name, globalAllMap[r.name].criteria]));
+      try {
+        const jRes = await queryJev(test.query, crit200);
+        jev443Latency = performance.now() - stageT0;
+        jev443Top1 = jRes.choice === test.target;
+        jev443Top3 = jRes.ranked.slice(0, 3).includes(test.target);
+        jev443Top5 = jRes.ranked.slice(0, 5).includes(test.target);
+      } catch {}
     }
 
     return {
+      id: test.id,
       query: test.query,
       target: test.target,
       bm25DistractorTop1,
@@ -291,79 +372,91 @@ async function runBFCLBenchmark() {
       wasmDistractorTop1,
       wasmDistractorLatency,
       jevDistractorTop1,
-      jevLatency,
-      targetIn100,
-      jevGlobalTop1,
-      jevGlobalTop3,
-      jevGlobalTop5,
-      jevGlobalLatency,
-      wasmGlobalTop1,
-      wasmGlobalTop3,
-      wasmGlobalTop5,
-      wasmGlobalLatency,
-      tqGlobalTop1,
-      tqGlobalTop3,
-      tqGlobalTop5,
-      tqGlobalLatency,
-      bm25GlobalTop1,
-      bm25GlobalTop3,
-      bm25GlobalTop5,
-      bm25GlobalLatency
+      jevDistractorLatency,
+      tq100Top1,
+      tq100Top3,
+      tq100Top5,
+      tq100Latency,
+      bm25_100Top1,
+      bm25_100Top3,
+      bm25_100Top5,
+      bm25_100Latency,
+      wasm100Top1,
+      wasm100Top3,
+      wasm100Top5,
+      wasm100Latency,
+      jev100Top1,
+      jev100Top3,
+      jev100Top5,
+      jev100Latency,
+      tq443Top1,
+      tq443Top3,
+      tq443Top5,
+      tq443Latency,
+      bm443Top1,
+      bm443Top3,
+      bm443Top5,
+      bm443Latency,
+      wasm443Top1,
+      wasm443Top3,
+      wasm443Top5,
+      wasm443Latency,
+      jev443Top1,
+      jev443Top3,
+      jev443Top5,
+      jev443Latency
     };
-  }, 5);
+  }, 6);
 
-  if (globalTsWasm) globalTsWasm.destroy();
+  if (globalWasm443) globalWasm443.destroy();
 
   const total = results.length;
-  const in100Results = results.filter(r => r.targetIn100);
+  const pct = (arr, key) =>
+    arr.length ? `${((arr.filter(r => r[key]).length / arr.length) * 100).toFixed(1)}%` : '0.0%';
+  const avg = (arr, key) =>
+    arr.length ? arr.reduce((a, b) => a + b[key], 0) / arr.length : 0;
 
-  function pct(arr, key) {
-    if (!arr.length) return '0.0%';
-    return ((arr.filter(r => r[key]).length / arr.length) * 100).toFixed(1) + '%';
-  }
-
-  console.log('\n\n--- BENCHMARK 1: BFCL Distractor Selection (Picking from 2-4 Candidates) ---');
-  console.log(`Evaluates distinguishing target function among 2-4 local candidates (${total} queries):`);
+  console.log(`\n\n--- BENCHMARK 1: BFCL v3 Local Distractor Selection (2-4 Tools, N = ${total}) ---`);
   console.log('-----------------------------------------------------------------------------------------');
-  console.log(`Method                         │ Top-1 Accuracy │ Latency        │ Network Required`);
+  console.log('Method                         │ Top-1 Accuracy │ Search Latency │ Network Required');
   console.log('───────────────────────────────┼────────────────┼────────────────┼───────────────────────');
   if (API_KEY) {
-    console.log(`TypeSafe System One (Jev)      │ ${pct(results, 'jevDistractorTop1').padEnd(14)} │ ~${Math.round(results.reduce((a,b)=>a+b.jevLatency,0)/total)} ms        │ Yes (Cloud API)`);
+    console.log(`TypeSafe System One (Jev)      │ ${pct(results, 'jevDistractorTop1').padEnd(14)} │ ~${Math.round(avg(results, 'jevDistractorLatency'))} ms        │ Yes (Cloud API)`);
   }
   if (TurboSearch) {
-    console.log(`turboquant-search (WASM)       │ ${pct(results, 'wasmDistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.wasmDistractorLatency,0)/total).toFixed(2)} ms       │ No (100% Offline)`);
+    console.log(`turboquant-search (WASM)       │ ${pct(results, 'wasmDistractorTop1').padEnd(14)} │ ${avg(results, 'wasmDistractorLatency').toFixed(3)} ms      │ No (100% Offline)`);
   }
-  console.log(`TurboQuant (Pure JS built-in)  │ ${pct(results, 'tqDistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.tqDistractorLatency,0)/total).toFixed(3)} ms      │ No (100% Offline)`);
-  console.log(`BM25 Lexical Baseline          │ ${pct(results, 'bm25DistractorTop1').padEnd(14)} │ ~${(results.reduce((a,b)=>a+b.bm25DistractorLatency,0)/total).toFixed(3)} ms      │ No (100% Offline)`);
+  console.log(`TurboQuant (Pure JS built-in)  │ ${pct(results, 'tqDistractorTop1').padEnd(14)} │ ${avg(results, 'tqDistractorLatency').toFixed(3)} ms      │ No (100% Offline)`);
+  console.log(`BM25 Baseline (ident-split)    │ ${pct(results, 'bm25DistractorTop1').padEnd(14)} │ ${avg(results, 'bm25DistractorLatency').toFixed(3)} ms      │ No (100% Offline)`);
   console.log('-----------------------------------------------------------------------------------------');
 
-  console.log('\n--- BENCHMARK 2: BFCL Global Schema Pruning (100-Tool Open Catalog) ---');
-  console.log(`Evaluates pruning open catalog of 100 tools down to Top-K candidates (${in100Results.length} queries with target in catalog):`);
+  console.log(`\n--- BENCHMARK 2: BFCL v3 100-Tool Schema Pruning (N = ${total}, 0 Skipped) ---`);
   console.log('-----------------------------------------------------------------------------------------');
-  console.log(`Method                         │ Top-1          │ Top-3 Recall   │ Top-5 Recall   │ Search Latency`);
+  console.log('Method                         │ Top-1          │ Top-3 Recall   │ Top-5 Recall   │ Search Latency');
   console.log('───────────────────────────────┼────────────────┼────────────────┼────────────────┼───────────────');
   if (API_KEY) {
-    console.log(`TypeSafe System One (Jev)      │ ${pct(in100Results, 'jevGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'jevGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'jevGlobalTop5').padEnd(14)} │ ~${Math.round(in100Results.reduce((a,b)=>a+b.jevGlobalLatency,0)/in100Results.length)} ms (Cloud)`);
+    console.log(`TypeSafe System One (Jev)      │ ${pct(results, 'jev100Top1').padEnd(14)} │ ${pct(results, 'jev100Top3').padEnd(14)} │ ${pct(results, 'jev100Top5').padEnd(14)} │ ~${Math.round(avg(results, 'jev100Latency'))} ms (Cloud)`);
   }
   if (TurboSearch) {
-    console.log(`turboquant-search (WASM)       │ ${pct(in100Results, 'wasmGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'wasmGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'wasmGlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.wasmGlobalLatency,0)/in100Results.length).toFixed(2)} ms (Local)`);
+    console.log(`turboquant-search (WASM)       │ ${pct(results, 'wasm100Top1').padEnd(14)} │ ${pct(results, 'wasm100Top3').padEnd(14)} │ ${pct(results, 'wasm100Top5').padEnd(14)} │ ${avg(results, 'wasm100Latency').toFixed(3)} ms (Local)`);
   }
-  console.log(`TurboQuant (Pure JS built-in)  │ ${pct(in100Results, 'tqGlobalTop1').padEnd(14)} │ ${pct(in100Results, 'tqGlobalTop3').padEnd(14)} │ ${pct(in100Results, 'tqGlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.tqGlobalLatency,0)/in100Results.length).toFixed(3)} ms (Local)`);
-  console.log(`BM25 Lexical Baseline          │ ${pct(in100Results, 'bm25GlobalTop1').padEnd(14)} │ ${pct(in100Results, 'bm25GlobalTop3').padEnd(14)} │ ${pct(in100Results, 'bm25GlobalTop5').padEnd(14)} │ ${(in100Results.reduce((a,b)=>a+b.bm25GlobalLatency,0)/in100Results.length).toFixed(3)} ms (Local)`);
+  console.log(`TurboQuant (Pure JS built-in)  │ ${pct(results, 'tq100Top1').padEnd(14)} │ ${pct(results, 'tq100Top3').padEnd(14)} │ ${pct(results, 'tq100Top5').padEnd(14)} │ ${avg(results, 'tq100Latency').toFixed(3)} ms (Local)`);
+  console.log(`BM25 Baseline (ident-split)    │ ${pct(results, 'bm25_100Top1').padEnd(14)} │ ${pct(results, 'bm25_100Top3').padEnd(14)} │ ${pct(results, 'bm25_100Top5').padEnd(14)} │ ${avg(results, 'bm25_100Latency').toFixed(3)} ms (Local)`);
   console.log('-----------------------------------------------------------------------------------------');
 
-  console.log('\n--- SAMPLE BFCL HARD DISTRACTOR QUERIES ---');
-  for (const r of results.slice(0, 4)) {
-    console.log(`Query: "${r.query.slice(0, 75)}..."`);
-    console.log(`  Target: [${r.target}]`);
-    const parts = [];
-    if (API_KEY) parts.push(`Jev: ${r.jevDistractorTop1 ? 'PASS' : 'FAIL'}`);
-    if (TurboSearch) parts.push(`WASM: ${r.wasmDistractorTop1 ? 'PASS' : 'FAIL'}`);
-    parts.push(`Pure JS: ${r.tqDistractorTop1 ? 'PASS' : 'FAIL'}`);
-    parts.push(`BM25: ${r.bm25DistractorTop1 ? 'PASS' : 'FAIL'}`);
-    console.log(`  ${parts.join(' | ')}`);
+  console.log(`\n--- BENCHMARK 3: BFCL v3 Full ${globalAllTools.length}-Tool Global Pool Pruning (N = ${total}) ---`);
+  console.log('-----------------------------------------------------------------------------------------');
+  console.log('Method                         │ Top-1          │ Top-3 Recall   │ Top-5 Recall   │ Search Latency');
+  console.log('───────────────────────────────┼────────────────┼────────────────┼────────────────┼───────────────');
+  if (API_KEY) {
+    console.log(`TypeSafe System One (Jev)      │ ${pct(results, 'jev443Top1').padEnd(14)} │ ${pct(results, 'jev443Top3').padEnd(14)} │ ${pct(results, 'jev443Top5').padEnd(14)} │ ~${Math.round(avg(results, 'jev443Latency'))} ms (Cloud)`);
   }
+  if (TurboSearch) {
+    console.log(`turboquant-search (WASM)       │ ${pct(results, 'wasm443Top1').padEnd(14)} │ ${pct(results, 'wasm443Top3').padEnd(14)} │ ${pct(results, 'wasm443Top5').padEnd(14)} │ ${avg(results, 'wasm443Latency').toFixed(3)} ms (Local)`);
+  }
+  console.log(`TurboQuant (Pure JS built-in)  │ ${pct(results, 'tq443Top1').padEnd(14)} │ ${pct(results, 'tq443Top3').padEnd(14)} │ ${pct(results, 'tq443Top5').padEnd(14)} │ ${avg(results, 'tq443Latency').toFixed(3)} ms (Local)`);
+  console.log(`BM25 Baseline (ident-split)    │ ${pct(results, 'bm443Top1').padEnd(14)} │ ${pct(results, 'bm443Top3').padEnd(14)} │ ${pct(results, 'bm443Top5').padEnd(14)} │ ${avg(results, 'bm443Latency').toFixed(3)} ms (Local)`);
+  console.log('-----------------------------------------------------------------------------------------');
 }
 
 runBFCLBenchmark();
-
