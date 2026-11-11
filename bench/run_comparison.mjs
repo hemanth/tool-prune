@@ -11,8 +11,8 @@ const __dirname = path.dirname(__filename);
 let API_KEY = process.env.TYPESAFE_API_KEY;
 if (!API_KEY) {
   try {
-    const envContent = fs.readFileSync(path.resolve(__dirname, '../../tc39-typesafe/.env'), 'utf8');
-    const match = envContent.match(/TYPESAFE_API_KEY=(.+)/);
+    const envContent = fs.readFileSync(path.resolve(__dirname, '../.env'), 'utf8');
+    const match = envContent.match(/^TYPESAFE_API_KEY=(.+)$/m);
     if (match) API_KEY = match[1].trim();
   } catch {}
 }

@@ -5,10 +5,10 @@ import { TOOLS_30, TOOLS_60 } from './catalog.mjs';
 import { CASES_30, CASES_60 } from './cases.mjs';
 import { TurboQuantSearch } from './turboquant.mjs';
 
-// Try to dynamically load hemanth/turboquant-search from /tmp/turboquant-search or node_modules
+// Optional turboquant-search WASM package
 let TurboSearch = null;
 try {
-  const mod = await import('/tmp/turboquant-search/dist/index.js');
+  const mod = await import('turboquant-search');
   TurboSearch = mod.TurboSearch;
 } catch {}
 
@@ -18,8 +18,8 @@ const __dirname = path.dirname(__filename);
 let API_KEY = process.env.TYPESAFE_API_KEY;
 if (!API_KEY) {
   try {
-    const envContent = fs.readFileSync(path.resolve(__dirname, '../../tc39-typesafe/.env'), 'utf8');
-    const match = envContent.match(/TYPESAFE_API_KEY=(.+)/);
+    const envContent = fs.readFileSync(path.resolve(__dirname, '../.env'), 'utf8');
+    const match = envContent.match(/^TYPESAFE_API_KEY=(.+)$/m);
     if (match) API_KEY = match[1].trim();
   } catch {}
 }
