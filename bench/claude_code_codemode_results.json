@@ -1,0 +1,542 @@
+{
+  "evaluatedAt": "2026-11-16T02:19:16.346Z",
+  "claudeCodeVersion": "2.1.325",
+  "catalogSize": 60,
+  "queriesCount": 79,
+  "pruneK": 5,
+  "instruction": "You are being evaluated on tool routing. The `catalog` MCP server exposes stub operations that have no real side effects. Handle each request by calling the single most appropriate catalog operation, then report briefly. Use only catalog operations for the request itself: never use shell, file, web, or agent tools. If the request is general conversation or a question that needs no operation, answer directly without calling any operation.",
+  "models": {
+    "claude-sonnet-5-5": {
+      "default": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "exactAccuracy": 96.2,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 92.3,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.91,
+        "llmRequests": 2.95,
+        "firstRequestPromptTokens": 21169,
+        "promptTokensPerTask": 70315,
+        "cacheWriteTokensPerTask": 8039,
+        "outputTokensPerTask": 256,
+        "p50TurnMs": 6559,
+        "meanTurnMs": 6944,
+        "meanCostUsd": 0.02898,
+        "totalCostUsd": 2.29,
+        "toolSearchUsedPct": 94.9,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "upfront": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 94.9,
+        "ci95": [
+          89.9,
+          98.7
+        ],
+        "exactAccuracy": 94.9,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 92.3,
+        "externalDomainsAccuracy": 97.1,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.91,
+        "llmRequests": 2.82,
+        "firstRequestPromptTokens": 39492,
+        "promptTokensPerTask": 125064,
+        "cacheWriteTokensPerTask": 10110,
+        "outputTokensPerTask": 322,
+        "p50TurnMs": 7284,
+        "meanTurnMs": 7339,
+        "meanCostUsd": 0.04068,
+        "totalCostUsd": 3.214,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "toolprune-upfront": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 92.4,
+        "ci95": [
+          86.1,
+          97.5
+        ],
+        "exactAccuracy": 91.1,
+        "slices": {
+          "direct": 95.7,
+          "overlap": 85.2,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 84.6,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 94.5,
+        "meanCatalogCalls": 0.9,
+        "llmRequests": 2.8,
+        "firstRequestPromptTokens": 39492,
+        "promptTokensPerTask": 111810,
+        "cacheWriteTokensPerTask": 35750,
+        "outputTokensPerTask": 321,
+        "p50TurnMs": 6696,
+        "meanTurnMs": 7263,
+        "meanCostUsd": 0.10067,
+        "totalCostUsd": 7.953,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "toolprune": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 92.4,
+        "ci95": [
+          86.1,
+          97.5
+        ],
+        "exactAccuracy": 92.4,
+        "slices": {
+          "direct": 95.7,
+          "overlap": 85.2,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 84.6,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 94.5,
+        "meanCatalogCalls": 0.9,
+        "llmRequests": 2.9,
+        "firstRequestPromptTokens": 21169,
+        "promptTokensPerTask": 70726,
+        "cacheWriteTokensPerTask": 9199,
+        "outputTokensPerTask": 258,
+        "p50TurnMs": 5612,
+        "meanTurnMs": 5640,
+        "meanCostUsd": 0.03194,
+        "totalCostUsd": 2.524,
+        "toolSearchUsedPct": 93.7,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "codemode": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 92.4,
+        "ci95": [
+          86.1,
+          97.5
+        ],
+        "exactAccuracy": 92.4,
+        "slices": {
+          "direct": 93.5,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 84.6,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.87,
+        "llmRequests": 4.23,
+        "firstRequestPromptTokens": 16388,
+        "promptTokensPerTask": 87349,
+        "cacheWriteTokensPerTask": 10500,
+        "outputTokensPerTask": 383,
+        "p50TurnMs": 7796,
+        "meanTurnMs": 7803,
+        "meanCostUsd": 0.03782,
+        "totalCostUsd": 2.988,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 3.23,
+        "searchToolsUsedPct": 91.1
+      },
+      "codemode+toolprune": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 91.1,
+        "ci95": [
+          84.8,
+          96.2
+        ],
+        "exactAccuracy": 91.1,
+        "slices": {
+          "direct": 93.5,
+          "overlap": 85.2,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 82.1,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 94.5,
+        "meanCatalogCalls": 0.89,
+        "llmRequests": 4.25,
+        "firstRequestPromptTokens": 16388,
+        "promptTokensPerTask": 83992,
+        "cacheWriteTokensPerTask": 3203,
+        "outputTokensPerTask": 388,
+        "p50TurnMs": 8119,
+        "meanTurnMs": 8144,
+        "meanCostUsd": 0.01998,
+        "totalCostUsd": 1.578,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 3.27,
+        "searchToolsUsedPct": 92.4
+      },
+      "jev": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "exactAccuracy": 96.2,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 92.3,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.91,
+        "llmRequests": 2.89,
+        "firstRequestPromptTokens": 21169,
+        "promptTokensPerTask": 70254,
+        "cacheWriteTokensPerTask": 9169,
+        "outputTokensPerTask": 248,
+        "p50TurnMs": 6161,
+        "meanTurnMs": 7325,
+        "meanCostUsd": 0.03152,
+        "totalCostUsd": 2.49,
+        "toolSearchUsedPct": 93.7,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "jev-upfront": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 93.7,
+        "ci95": [
+          88.6,
+          98.7
+        ],
+        "exactAccuracy": 93.7,
+        "slices": {
+          "direct": 95.7,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 89.7,
+        "externalDomainsAccuracy": 97.1,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.9,
+        "llmRequests": 2.8,
+        "firstRequestPromptTokens": 39492,
+        "promptTokensPerTask": 111363,
+        "cacheWriteTokensPerTask": 37217,
+        "outputTokensPerTask": 311,
+        "p50TurnMs": 7997,
+        "meanTurnMs": 8324,
+        "meanCostUsd": 0.10423,
+        "totalCostUsd": 8.234,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "jev-direct": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 97.5,
+        "ci95": [
+          93.7,
+          100
+        ],
+        "exactAccuracy": 97.5,
+        "slices": {
+          "direct": 100,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 94.9,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.92,
+        "llmRequests": 0.22,
+        "firstRequestPromptTokens": 1340,
+        "promptTokensPerTask": 5206,
+        "cacheWriteTokensPerTask": 595,
+        "outputTokensPerTask": 17,
+        "p50TurnMs": 121,
+        "meanTurnMs": 604,
+        "meanCostUsd": 0.00212,
+        "totalCostUsd": 0.167,
+        "toolSearchUsedPct": 6.3,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0,
+        "bypassedPct": 93.7,
+        "bypassedAccuracy": 97.3
+      },
+      "_jevRetrieval": {
+        "top1": 94.5,
+        "topKRecall": 100,
+        "k": 3,
+        "p50LatencyMs": 119
+      }
+    },
+    "claude-opus-5-5": {
+      "default": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "exactAccuracy": 96.2,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 92.3,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.91,
+        "llmRequests": 2.86,
+        "firstRequestPromptTokens": 21239,
+        "promptTokensPerTask": 66529,
+        "cacheWriteTokensPerTask": 7290,
+        "outputTokensPerTask": 263,
+        "p50TurnMs": 5277,
+        "meanTurnMs": 5403,
+        "meanCostUsd": 0.05358,
+        "totalCostUsd": 4.233,
+        "toolSearchUsedPct": 91.1,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "upfront": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 94.9,
+        "ci95": [
+          89.9,
+          98.7
+        ],
+        "exactAccuracy": 94.9,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 89.7,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.91,
+        "llmRequests": 2.82,
+        "firstRequestPromptTokens": 39562,
+        "promptTokensPerTask": 125277,
+        "cacheWriteTokensPerTask": 9195,
+        "outputTokensPerTask": 304,
+        "p50TurnMs": 5329,
+        "meanTurnMs": 5435,
+        "meanCostUsd": 0.0753,
+        "totalCostUsd": 5.949,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "toolprune": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 92.4,
+        "ci95": [
+          86.1,
+          97.5
+        ],
+        "exactAccuracy": 92.4,
+        "slices": {
+          "direct": 95.7,
+          "overlap": 85.2,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 84.6,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 94.5,
+        "meanCatalogCalls": 0.9,
+        "llmRequests": 2.87,
+        "firstRequestPromptTokens": 21239,
+        "promptTokensPerTask": 67811,
+        "cacheWriteTokensPerTask": 3219,
+        "outputTokensPerTask": 261,
+        "p50TurnMs": 5153,
+        "meanTurnMs": 5369,
+        "meanCostUsd": 0.03426,
+        "totalCostUsd": 2.706,
+        "toolSearchUsedPct": 91.1,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "codemode": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 96.2,
+        "ci95": [
+          92.4,
+          100
+        ],
+        "exactAccuracy": 96.2,
+        "slices": {
+          "direct": 97.8,
+          "overlap": 92.6,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 92.3,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.91,
+        "llmRequests": 4.54,
+        "firstRequestPromptTokens": 16458,
+        "promptTokensPerTask": 91963,
+        "cacheWriteTokensPerTask": 9688,
+        "outputTokensPerTask": 420,
+        "p50TurnMs": 7896,
+        "meanTurnMs": 8122,
+        "meanCostUsd": 0.07333,
+        "totalCostUsd": 5.793,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 3.57,
+        "searchToolsUsedPct": 91.1
+      },
+      "codemode+toolprune": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 91.1,
+        "ci95": [
+          84.8,
+          96.2
+        ],
+        "exactAccuracy": 91.1,
+        "slices": {
+          "direct": 93.5,
+          "overlap": 85.2,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 84.6,
+        "externalDomainsAccuracy": 97.1,
+        "targetExposedPct": 94.5,
+        "meanCatalogCalls": 0.89,
+        "llmRequests": 4.49,
+        "firstRequestPromptTokens": 16458,
+        "promptTokensPerTask": 88487,
+        "cacheWriteTokensPerTask": 3403,
+        "outputTokensPerTask": 418,
+        "p50TurnMs": 7625,
+        "meanTurnMs": 7857,
+        "meanCostUsd": 0.0427,
+        "totalCostUsd": 3.373,
+        "toolSearchUsedPct": 0,
+        "replEvalsPerTask": 3.49,
+        "searchToolsUsedPct": 92.4
+      },
+      "jev": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 93.7,
+        "ci95": [
+          87.3,
+          98.7
+        ],
+        "exactAccuracy": 93.7,
+        "slices": {
+          "direct": 95.7,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 89.7,
+        "externalDomainsAccuracy": 97.1,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.9,
+        "llmRequests": 2.84,
+        "firstRequestPromptTokens": 21239,
+        "promptTokensPerTask": 69036,
+        "cacheWriteTokensPerTask": 8865,
+        "outputTokensPerTask": 261,
+        "p50TurnMs": 5439,
+        "meanTurnMs": 5782,
+        "meanCostUsd": 0.06161,
+        "totalCostUsd": 4.867,
+        "toolSearchUsedPct": 91.1,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0
+      },
+      "jev-direct": {
+        "queriesCount": 79,
+        "finishedPct": 100,
+        "modeOkPct": 100,
+        "accuracy": 96.2,
+        "ci95": [
+          91.1,
+          100
+        ],
+        "exactAccuracy": 96.2,
+        "slices": {
+          "direct": 100,
+          "overlap": 88.9,
+          "ood": 100
+        },
+        "builtinLikeDomainsAccuracy": 92.3,
+        "externalDomainsAccuracy": 100,
+        "targetExposedPct": 100,
+        "meanCatalogCalls": 0.92,
+        "llmRequests": 0.22,
+        "firstRequestPromptTokens": 1344,
+        "promptTokensPerTask": 5178,
+        "cacheWriteTokensPerTask": 573,
+        "outputTokensPerTask": 20,
+        "p50TurnMs": 121,
+        "meanTurnMs": 696,
+        "meanCostUsd": 0.00419,
+        "totalCostUsd": 0.331,
+        "toolSearchUsedPct": 6.3,
+        "replEvalsPerTask": 0,
+        "searchToolsUsedPct": 0,
+        "bypassedPct": 93.7,
+        "bypassedAccuracy": 97.3
+      },
+      "_jevRetrieval": {
+        "top1": 94.5,
+        "topKRecall": 100,
+        "k": 3,
+        "p50LatencyMs": 119
+      }
+    }
+  }
+}
